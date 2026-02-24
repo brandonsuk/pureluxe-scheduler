@@ -1,5 +1,6 @@
 import { addDays, format, parseISO } from "date-fns";
 import { env } from "@/lib/env";
+import { corsOptions } from "@/lib/cors";
 import { jsonError, jsonOk } from "@/lib/http";
 import { workingHoursSchema } from "@/lib/validators";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -14,12 +15,14 @@ function dateRange(startDate: string, endDate: string): string[] {
   return out;
 }
 
+export const OPTIONS = corsOptions;
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const parsed = workingHoursSchema.safeParse(body);
-    if (!parsed.success) return jsonError("Invalid request payload", 422);
-    if (parsed.data.admin_password !== env.adminPassword) return jsonError("Unauthorized", 401);
+    if (!parsed.success) return jsonError("Invalid request payload", request, 422);
+    if (parsed.data.admin_password !== env.adminPassword) return jsonError("Unauthorized", request, 401);
 
     const dates = dateRange(parsed.data.start_date, parsed.data.end_date || parsed.data.start_date);
 
@@ -31,11 +34,11 @@ export async function POST(request: Request) {
     }));
 
     const { error } = await supabaseAdmin.from("working_hours").upsert(rows, { onConflict: "date" });
-    if (error) return jsonError(error.message, 500);
+    if (error) return jsonError(error.message, request, 500);
 
-    return jsonOk({ success: true, updated: rows.length });
+    return jsonOk({ success: true, updated: rows.length }, request);
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unexpected error", 500);
+    return jsonError(error instanceof Error ? error.message : "Unexpected error", request, 500);
   }
 }
 
@@ -44,7 +47,7 @@ export async function GET(request: Request) {
   const password = searchParams.get("password");
   const fromDate = searchParams.get("from_date");
 
-  if (!password || password !== env.adminPassword) return jsonError("Unauthorized", 401);
+  if (!password || password !== env.adminPassword) return jsonError("Unauthorized", request, 401);
 
   const from = fromDate || format(new Date(), "yyyy-MM-dd");
   const to = format(addDays(new Date(from), 7), "yyyy-MM-dd");
@@ -56,6 +59,6 @@ export async function GET(request: Request) {
     .lte("date", to)
     .order("date", { ascending: true });
 
-  if (error) return jsonError(error.message, 500);
-  return jsonOk({ hours: data || [] });
+  if (error) return jsonError(error.message, request, 500);
+  return jsonOk({ hours: data || [] }, request);
 }

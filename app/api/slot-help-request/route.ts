@@ -1,4 +1,7 @@
+import { corsOptions } from "@/lib/cors";
 import { jsonError, jsonOk } from "@/lib/http";
+
+export const OPTIONS = corsOptions;
 
 export async function POST(request: Request) {
   try {
@@ -9,8 +12,8 @@ export async function POST(request: Request) {
       created_at: new Date().toISOString(),
       ...payload,
     });
-    return jsonOk({ success: true });
+    return jsonOk({ success: true }, request);
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unexpected error", 500);
+    return jsonError(error instanceof Error ? error.message : "Unexpected error", request, 500);
   }
 }

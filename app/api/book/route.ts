@@ -1,3 +1,4 @@
+import { corsOptions } from "@/lib/cors";
 import { jsonError, jsonOk } from "@/lib/http";
 import { bookSchema } from "@/lib/validators";
 import { addMins } from "@/lib/time";
@@ -5,11 +6,13 @@ import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
 import { sendBookingNotifications } from "@/lib/notifications";
 
+export const OPTIONS = corsOptions;
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
     const parsed = bookSchema.safeParse(body);
-    if (!parsed.success) return jsonError("Invalid request payload", 422);
+    if (!parsed.success) return jsonError("Invalid request payload", request, 422);
 
     const payload = parsed.data;
     const existing = await fetchDayAppointments(payload.date);
@@ -23,7 +26,7 @@ export async function POST(request: Request) {
       existing,
     );
 
-    if (!check.valid) return jsonError(`Slot no longer available: ${check.reason}`, 409);
+    if (!check.valid) return jsonError(`Slot no longer available: ${check.reason}`, request, 409);
 
     const endTime = addMins(payload.start_time, payload.duration_mins);
     const { data, error } = await supabaseAdmin
@@ -45,7 +48,7 @@ export async function POST(request: Request) {
       .select("*")
       .single();
 
-    if (error || !data) return jsonError(error?.message || "Failed to create appointment", 500);
+    if (error || !data) return jsonError(error?.message || "Failed to create appointment", request, 500);
 
     await sendBookingNotifications({
       clientName: payload.client_name,
@@ -58,15 +61,18 @@ export async function POST(request: Request) {
       readinessLevel: payload.readiness_level,
     });
 
-    return jsonOk({
-      booking: data,
-      confirmation: {
-        appointment_id: data.id,
-        date: data.date,
-        time: data.start_time,
+    return jsonOk(
+      {
+        booking: data,
+        confirmation: {
+          appointment_id: data.id,
+          date: data.date,
+          time: data.start_time,
+        },
       },
-    });
+      request,
+    );
   } catch (error) {
-    return jsonError(error instanceof Error ? error.message : "Unexpected error", 500);
+    return jsonError(error instanceof Error ? error.message : "Unexpected error", request, 500);
   }
 }
