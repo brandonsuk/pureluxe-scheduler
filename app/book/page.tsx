@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState } from "react";
+import { Suspense, useMemo, useState } from "react";
 import { useSearchParams } from "next/navigation";
 import { apiFetch } from "@/lib/api-client";
 import type { ReadinessLevel } from "@/lib/types";
@@ -39,7 +39,7 @@ const readinessChoices: Array<{ label: string; value: ReadinessLevel; duration: 
   { label: "I'm not sure yet, I need help deciding", value: "unsure", duration: 90 },
 ];
 
-export default function BookingPage() {
+function BookingPageInner() {
   const searchParams = useSearchParams();
   const prefill = useMemo(
     () => ({
@@ -301,5 +301,13 @@ export default function BookingPage() {
         {error ? <p className="error">{error}</p> : null}
       </section>
     </main>
+  );
+}
+
+export default function BookingPage() {
+  return (
+    <Suspense fallback={<main className="shell"><section className="panel"><p>Loading booking form...</p></section></main>}>
+      <BookingPageInner />
+    </Suspense>
   );
 }
