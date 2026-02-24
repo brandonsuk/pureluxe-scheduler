@@ -15,9 +15,9 @@
     "@turf/helpers": "^7.2.0",
     "date-fns": "^4.1.0",
     "mapbox-gl": "^3.9.4",
-    "next": "15.2.0",
-    "react": "19.0.0",
-    "react-dom": "19.0.0",
+    "next": "15.2.6",
+    "react": "19.0.1",
+    "react-dom": "19.0.1",
     "resend": "^4.1.2",
     "twilio": "^5.4.0",
     "zod": "^3.24.2"
