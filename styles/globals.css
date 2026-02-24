@@ -1,0 +1,170 @@
+:root {
+  --bg: #f3ece3;
+  --panel: #fff9f0;
+  --text: #1f1a14;
+  --muted: #6d655d;
+  --accent: #8a6a3f;
+  --accent-dark: #3f2e1b;
+  --border: #d8cab8;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: radial-gradient(circle at top right, #fdf6e6 0%, var(--bg) 42%, #e7dac8 100%);
+  color: var(--text);
+  font-family: "Avenir Next", "Segoe UI", sans-serif;
+}
+
+.shell {
+  min-height: 100vh;
+  padding: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.panel {
+  width: min(920px, 100%);
+  border: 1px solid var(--border);
+  border-radius: 18px;
+  background: var(--panel);
+  padding: 20px;
+  box-shadow: 0 12px 40px rgba(31, 26, 20, 0.08);
+}
+
+h1,
+h2,
+h3 {
+  margin-top: 0;
+  font-family: "Didot", "Bodoni MT", serif;
+  letter-spacing: 0.02em;
+}
+
+.actions,
+.row {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+.button,
+button {
+  border: 0;
+  border-radius: 12px;
+  padding: 10px 14px;
+  background: var(--accent-dark);
+  color: #fff;
+  cursor: pointer;
+  text-decoration: none;
+}
+
+.button-outline {
+  background: transparent;
+  border: 1px solid var(--accent-dark);
+  color: var(--accent-dark);
+}
+
+input,
+select {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid var(--border);
+  padding: 10px;
+  background: #fff;
+}
+
+.label {
+  margin-bottom: 4px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.card {
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 12px;
+  background: #fffdf9;
+}
+
+.grid {
+  display: grid;
+  gap: 12px;
+}
+
+.grid-2 {
+  grid-template-columns: 1fr;
+}
+
+.status {
+  margin-top: 8px;
+  color: var(--muted);
+}
+
+.error {
+  color: #9b1c1c;
+}
+
+.success {
+  color: #1b6a3a;
+}
+
+.slot-group {
+  margin-bottom: 14px;
+}
+
+.slot-list {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.slot {
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.slot.selected {
+  background: var(--accent-dark);
+  color: #fff;
+  border-color: var(--accent-dark);
+}
+
+.readiness {
+  display: grid;
+  gap: 10px;
+}
+
+.readiness button {
+  text-align: left;
+  background: #fff;
+  color: var(--text);
+  border: 1px solid var(--border);
+}
+
+.readiness button.active {
+  border-color: var(--accent-dark);
+  background: #f4ece1;
+}
+
+.list {
+  display: grid;
+  gap: 8px;
+}
+
+iframe.map {
+  width: 100%;
+  height: 320px;
+  border: 1px solid var(--border);
+  border-radius: 12px;
+}
+
+@media (min-width: 900px) {
+  .grid-2 {
+    grid-template-columns: 1fr 1fr;
+  }
+}
