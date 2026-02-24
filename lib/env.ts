@@ -28,6 +28,6 @@ export const env = {
   homeBaseLat: Number(process.env.HOME_BASE_LAT || 55.7956),
   homeBaseLng: Number(process.env.HOME_BASE_LNG || -3.7939),
   maxDriveMins: Number(process.env.MAX_DRIVE_MINS || 40),
-  bufferMins: Number(process.env.BUFFER_MINS || 5),
+  bufferMins: Number(process.env.BUFFER_MINS || 0),
   appUrl: process.env.NEXT_PUBLIC_API_URL || "",
 };

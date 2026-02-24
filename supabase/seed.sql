@@ -3,7 +3,7 @@ values
   ('home_base_lat', '55.7956'),
   ('home_base_lng', '-3.7939'),
   ('max_drive_mins', '40'),
-  ('buffer_mins', '5')
+  ('buffer_mins', '0')
 on conflict (key) do update set value = excluded.value;
 
 insert into service_area (name, geojson)

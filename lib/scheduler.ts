@@ -69,7 +69,7 @@ function generateCandidateSlots(day: WorkingHours, durationMins: number): Candid
   const windowStart = combineDateTime(day.date, day.start_time);
   const windowEnd = combineDateTime(day.date, day.end_time);
 
-  for (let cursor = windowStart; cursor < windowEnd; cursor = new Date(cursor.getTime() + 30 * 60 * 1000)) {
+  for (let cursor = windowStart; cursor < windowEnd; cursor = new Date(cursor.getTime() + 15 * 60 * 1000)) {
     const end = new Date(cursor.getTime() + durationMins * 60 * 1000);
     if (end <= windowEnd) {
       slots.push({
@@ -143,8 +143,8 @@ export async function validateCandidateSlot(input: SlotInput, existing: Appointm
     getDriveMinutes(input.location, nextLoc),
   ]);
 
-  const availableFromPrev = minutesBetween(prevEnd, start) - env.bufferMins;
-  const availableToNext = minutesBetween(end, nextStart) - env.bufferMins;
+  const availableFromPrev = minutesBetween(prevEnd, start);
+  const availableToNext = minutesBetween(end, nextStart);
 
   if (prevDrive > availableFromPrev || nextDrive > availableToNext) {
     return { valid: false, reason: "drive_window" };
@@ -165,7 +165,7 @@ export async function validateCandidateSlot(input: SlotInput, existing: Appointm
   for (let i = 0; i < apptsWithCandidate.length - 1; i += 1) {
     const a = apptsWithCandidate[i];
     const b = apptsWithCandidate[i + 1];
-    const gap = minutesBetween(combineDateTime(a.date, a.end_time), combineDateTime(b.date, b.start_time)) - env.bufferMins;
+    const gap = minutesBetween(combineDateTime(a.date, a.end_time), combineDateTime(b.date, b.start_time));
     const drive = await getDriveMinutes({ lat: a.lat, lng: a.lng }, { lat: b.lat, lng: b.lng });
     if (drive > gap) {
       return { valid: false, reason: "strand" };
