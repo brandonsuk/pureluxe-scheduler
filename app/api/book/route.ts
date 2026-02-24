@@ -8,11 +8,35 @@ import { sendBookingNotifications } from "@/lib/notifications";
 
 export const OPTIONS = corsOptions;
 
+function normalizeBookPayload(input: Record<string, unknown>) {
+  const dateRaw = input.date ?? input.bookingDate;
+  const timeRaw = input.start_time ?? input.startTime;
+
+  const date = typeof dateRaw === "string" ? dateRaw.slice(0, 10) : dateRaw;
+  const start_time = typeof timeRaw === "string" ? timeRaw.slice(0, 5) : timeRaw;
+
+  return {
+    date,
+    start_time,
+    duration_mins: input.duration_mins ?? input.durationMins,
+    client_name: input.client_name ?? input.clientName ?? input.name,
+    client_phone: input.client_phone ?? input.clientPhone ?? input.phone,
+    client_email: input.client_email ?? input.clientEmail ?? input.email,
+    address: input.address,
+    lat: input.lat,
+    lng: input.lng,
+    readiness_level: input.readiness_level ?? input.readinessLevel ?? input.readiness,
+  };
+}
+
 export async function POST(request: Request) {
   try {
     const body = await request.json();
-    const parsed = bookSchema.safeParse(body);
-    if (!parsed.success) return jsonError("Invalid request payload", request, 422);
+    const normalized = normalizeBookPayload((body || {}) as Record<string, unknown>);
+    const parsed = bookSchema.safeParse(normalized);
+    if (!parsed.success) {
+      return jsonError("Invalid request payload", request, 422, parsed.error.flatten());
+    }
 
     const payload = parsed.data;
     const existing = await fetchDayAppointments(payload.date);

@@ -5,23 +5,35 @@ export const validateAddressSchema = z.object({
 });
 
 export const availableSlotsSchema = z.object({
-  lat: z.number(),
-  lng: z.number(),
-  duration_mins: z.number().int().min(30).max(180),
+  lat: z.coerce.number(),
+  lng: z.coerce.number(),
+  duration_mins: z.coerce.number().int().min(30).max(180),
   from_date: z.string().optional(),
 });
+
+const readinessSchema = z.preprocess((value) => {
+  if (typeof value !== "string") return value;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "ready") return "ready";
+  if (normalized === "partial") return "partial";
+  if (normalized === "unsure") return "unsure";
+  if (normalized === "i know exactly what i want") return "ready";
+  if (normalized === "i have some ideas but need guidance") return "partial";
+  if (normalized === "i'm not sure yet, i need help deciding") return "unsure";
+  return normalized;
+}, z.enum(["ready", "partial", "unsure"]));
 
 export const bookSchema = z.object({
   date: z.string(),
   start_time: z.string(),
-  duration_mins: z.number().int().min(30).max(180),
+  duration_mins: z.coerce.number().int().min(30).max(180),
   client_name: z.string().min(2),
   client_phone: z.string().min(7),
   client_email: z.string().email(),
   address: z.string().min(5),
-  lat: z.number(),
-  lng: z.number(),
-  readiness_level: z.enum(["ready", "partial", "unsure"]),
+  lat: z.coerce.number(),
+  lng: z.coerce.number(),
+  readiness_level: readinessSchema,
 });
 
 export const cancelSchema = z.object({
