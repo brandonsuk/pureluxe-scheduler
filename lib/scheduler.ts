@@ -150,7 +150,7 @@ function pickDiverseSlots(
       if (!isNewDay) adjusted += dayWeight * 0.5;
       if (!isNewBand) adjusted += bandWeight * 0.5;
       if (seenDays.size < targetDistinctDays && !isNewDay) adjusted += dayWeight * 2;
-      if (seenBands.size < targetDistinctBands && !isNewBand) adjusted += bandWeight * 2;
+      if (seenBands.size < targetDistinctBands && !isNewBand) adjusted += bandWeight * 4;
 
       if (adjusted < bestScore) {
         bestScore = adjusted;
