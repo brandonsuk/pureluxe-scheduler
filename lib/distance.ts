@@ -53,6 +53,31 @@ export async function getDriveMinutes(origin: Location, destination: Location): 
 }
 
 async function getTomTomDriveMinutes(origin: Location, destination: Location): Promise<number> {
+  try {
+    return await fetchTomTomRouteMinutes(origin, destination);
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("MAP_MATCHING_FAILURE")) throw error;
+
+    // Retry with small nearby offsets because geocoded points can be off-road.
+    const originCandidates = nudgeCandidates(origin);
+    const destinationCandidates = nudgeCandidates(destination);
+
+    for (const o of originCandidates) {
+      for (const d of destinationCandidates) {
+        try {
+          return await fetchTomTomRouteMinutes(o, d);
+        } catch {
+          // keep trying
+        }
+      }
+    }
+
+    throw error;
+  }
+}
+
+async function fetchTomTomRouteMinutes(origin: Location, destination: Location): Promise<number> {
   // TomTom routing expects "longitude,latitude"
   const coords = `${origin.lng},${origin.lat}:${destination.lng},${destination.lat}`;
   const url = new URL(`https://api.tomtom.com/routing/1/calculateRoute/${coords}/json`);
@@ -75,8 +100,22 @@ async function getTomTomDriveMinutes(origin: Location, destination: Location): P
   const data = (await response.json()) as TomTomRouteResponse;
   const seconds = data.routes?.[0]?.summary?.travelTimeInSeconds;
   if (!seconds) throw new Error("Drive time unavailable for route (TomTom)");
-
   return Math.ceil(seconds / 60);
+}
+
+function nudgeCandidates(point: Location): Location[] {
+  const delta = 0.0008; // ~85m latitude; enough to snap near-road without distorting area
+  const offsets = [0, delta, -delta];
+  const out: Location[] = [];
+  for (const dLat of offsets) {
+    for (const dLng of offsets) {
+      out.push({
+        lat: Number((point.lat + dLat).toFixed(6)),
+        lng: Number((point.lng + dLng).toFixed(6)),
+      });
+    }
+  }
+  return out;
 }
 
 async function getGoogleDriveMinutes(origin: Location, destination: Location): Promise<number> {
