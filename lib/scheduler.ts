@@ -113,11 +113,12 @@ export async function validateCandidateSlot(input: SlotInput, existing: Appointm
   let nextDrive: number;
   let directPrevToNext: number;
   try {
-    [prevDrive, nextDrive, directPrevToNext] = await Promise.all([
+    [prevDrive, nextDrive] = await Promise.all([
       getDriveMinutes(prevLoc, input.location),
       getDriveMinutes(input.location, nextLoc),
-      getDriveMinutes(prevLoc, nextLoc),
     ]);
+    const samePrevNext = prevLoc.lat === nextLoc.lat && prevLoc.lng === nextLoc.lng;
+    directPrevToNext = samePrevNext ? 0 : await getDriveMinutes(prevLoc, nextLoc);
   } catch {
     return { valid: false, reason: "route_unavailable" };
   }
