@@ -90,6 +90,15 @@ function timeToMinutes(time: string): number {
   return h * 60 + m;
 }
 
+type TimeBand = "morning" | "midday" | "late_day";
+
+function getTimeBand(time: string): TimeBand {
+  const mins = timeToMinutes(time);
+  if (mins < 12 * 60) return "morning";
+  if (mins < 15 * 60) return "midday";
+  return "late_day";
+}
+
 function isSpacedFromSelected(slot: CandidateSlot, selected: CandidateSlot[], minGapMins: number): boolean {
   const slotMins = timeToMinutes(slot.start_time);
   return selected.every((s) => {
@@ -101,38 +110,101 @@ function isSpacedFromSelected(slot: CandidateSlot, selected: CandidateSlot[], mi
 function pickDiverseSlots(
   scored: CandidateSlot[],
   count: number,
-  options: { minGapMins: number; maxPerDay: number; preferDistinctDayFirst?: boolean },
+  options: {
+    minGapMins: number;
+    maxPerDay: number;
+    preferDistinctDayFirst?: boolean;
+    targetDistinctDays?: number;
+    targetDistinctBands?: number;
+    dayWeight?: number;
+    bandWeight?: number;
+  },
 ): CandidateSlot[] {
   const selected: CandidateSlot[] = [];
   const perDay = new Map<string, number>();
+  const perBand = new Map<TimeBand, number>();
+  const targetDistinctDays = options.targetDistinctDays || 0;
+  const targetDistinctBands = options.targetDistinctBands || 0;
+  const dayWeight = options.dayWeight ?? 1;
+  const bandWeight = options.bandWeight ?? 1;
+
+  function pickBestCandidate(candidates: CandidateSlot[]): CandidateSlot | null {
+    if (!candidates.length) return null;
+    const seenDays = new Set(selected.map((s) => s.date));
+    const seenBands = new Set(selected.map((s) => getTimeBand(s.start_time)));
+
+    let best: CandidateSlot | null = null;
+    let bestScore = Number.POSITIVE_INFINITY;
+
+    for (const slot of candidates) {
+      const dayCount = perDay.get(slot.date) || 0;
+      const band = getTimeBand(slot.start_time);
+      const bandCount = perBand.get(band) || 0;
+      const isNewDay = !seenDays.has(slot.date);
+      const isNewBand = !seenBands.has(band);
+
+      // Efficiency stays primary (base score), diversity penalties act as soft tie-breakers.
+      let adjusted = slot.score;
+      adjusted += dayWeight * dayCount;
+      adjusted += bandWeight * bandCount;
+      if (!isNewDay) adjusted += dayWeight * 0.5;
+      if (!isNewBand) adjusted += bandWeight * 0.5;
+      if (seenDays.size < targetDistinctDays && !isNewDay) adjusted += dayWeight * 2;
+      if (seenBands.size < targetDistinctBands && !isNewBand) adjusted += bandWeight * 2;
+
+      if (adjusted < bestScore) {
+        bestScore = adjusted;
+        best = slot;
+      }
+    }
+
+    return best;
+  }
 
   if (options.preferDistinctDayFirst) {
+    const seenDays = new Set<string>();
     for (const slot of scored) {
       if (selected.length >= count) break;
       if ((perDay.get(slot.date) || 0) > 0) continue;
       if (!isSpacedFromSelected(slot, selected, options.minGapMins)) continue;
       selected.push(slot);
+      seenDays.add(slot.date);
       perDay.set(slot.date, 1);
+      const band = getTimeBand(slot.start_time);
+      perBand.set(band, (perBand.get(band) || 0) + 1);
+      if (seenDays.size >= targetDistinctDays) break;
     }
   }
 
-  for (const slot of scored) {
-    if (selected.length >= count) break;
-    if (selected.some((s) => s.date === slot.date && s.start_time === slot.start_time)) continue;
-    if ((perDay.get(slot.date) || 0) >= options.maxPerDay) continue;
-    if (!isSpacedFromSelected(slot, selected, options.minGapMins)) continue;
-    selected.push(slot);
-    perDay.set(slot.date, (perDay.get(slot.date) || 0) + 1);
+  while (selected.length < count) {
+    const candidates = scored.filter((slot) => {
+      if (selected.some((s) => s.date === slot.date && s.start_time === slot.start_time)) return false;
+      if ((perDay.get(slot.date) || 0) >= options.maxPerDay) return false;
+      if (!isSpacedFromSelected(slot, selected, options.minGapMins)) return false;
+      return true;
+    });
+    const best = pickBestCandidate(candidates);
+    if (!best) break;
+    selected.push(best);
+    perDay.set(best.date, (perDay.get(best.date) || 0) + 1);
+    const band = getTimeBand(best.start_time);
+    perBand.set(band, (perBand.get(band) || 0) + 1);
   }
 
   // Final fill pass with relaxed spacing if needed, while preserving per-day cap.
   if (selected.length < count) {
-    for (const slot of scored) {
-      if (selected.length >= count) break;
-      if (selected.some((s) => s.date === slot.date && s.start_time === slot.start_time)) continue;
-      if ((perDay.get(slot.date) || 0) >= options.maxPerDay) continue;
-      selected.push(slot);
-      perDay.set(slot.date, (perDay.get(slot.date) || 0) + 1);
+    while (selected.length < count) {
+      const candidates = scored.filter((slot) => {
+        if (selected.some((s) => s.date === slot.date && s.start_time === slot.start_time)) return false;
+        if ((perDay.get(slot.date) || 0) >= options.maxPerDay) return false;
+        return true;
+      });
+      const best = pickBestCandidate(candidates);
+      if (!best) break;
+      selected.push(best);
+      perDay.set(best.date, (perDay.get(best.date) || 0) + 1);
+      const band = getTimeBand(best.start_time);
+      perBand.set(band, (perBand.get(band) || 0) + 1);
     }
   }
 
@@ -227,6 +299,10 @@ export async function findBestSlots(
     minGapMins: 60,
     maxPerDay: 2,
     preferDistinctDayFirst: true,
+    targetDistinctDays: 4,
+    targetDistinctBands: 3,
+    dayWeight: 1.2,
+    bandWeight: 1.0,
   });
 
   return {
