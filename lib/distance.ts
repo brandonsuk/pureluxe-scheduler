@@ -51,7 +51,8 @@ export async function getDriveMinutes(origin: Location, destination: Location): 
 }
 
 async function getTomTomDriveMinutes(origin: Location, destination: Location): Promise<number> {
-  const coords = `${origin.lat},${origin.lng}:${destination.lat},${destination.lng}`;
+  // TomTom routing expects "longitude,latitude"
+  const coords = `${origin.lng},${origin.lat}:${destination.lng},${destination.lat}`;
   const url = new URL(`https://api.tomtom.com/routing/1/calculateRoute/${coords}/json`);
   url.searchParams.set("key", env.tomtomApiKey);
   url.searchParams.set("traffic", "true");
@@ -59,7 +60,15 @@ async function getTomTomDriveMinutes(origin: Location, destination: Location): P
   url.searchParams.set("routeType", "fastest");
 
   const response = await fetch(url.toString());
-  if (!response.ok) throw new Error("Failed to fetch drive time (TomTom)");
+  if (!response.ok) {
+    let details = "";
+    try {
+      details = await response.text();
+    } catch {
+      // noop
+    }
+    throw new Error(`Failed to fetch drive time (TomTom): ${response.status}${details ? ` ${details}` : ""}`);
+  }
 
   const data = (await response.json()) as TomTomRouteResponse;
   const seconds = data.routes?.[0]?.summary?.travelTimeInSeconds;
