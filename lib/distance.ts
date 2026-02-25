@@ -104,8 +104,8 @@ async function fetchTomTomRouteMinutes(origin: Location, destination: Location):
 }
 
 function nudgeCandidates(point: Location): Location[] {
-  const delta = 0.0008; // ~85m latitude; enough to snap near-road without distorting area
-  const offsets = [0, delta, -delta];
+  // Wider radius for rural/off-road points (e.g., home base not directly on mapped road).
+  const offsets = [0, 0.0008, -0.0008, 0.002, -0.002, 0.005, -0.005];
   const out: Location[] = [];
   for (const dLat of offsets) {
     for (const dLng of offsets) {
