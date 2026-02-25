@@ -2,7 +2,6 @@ const required = [
   "SUPABASE_URL",
   "SUPABASE_ANON_KEY",
   "SUPABASE_SERVICE_ROLE_KEY",
-  "GOOGLE_MAPS_API_KEY",
   "NEXT_PUBLIC_LOQATE_API_KEY",
   "ADMIN_PASSWORD",
 ] as const;
@@ -19,6 +18,8 @@ export const env = {
   supabaseAnonKey: process.env.SUPABASE_ANON_KEY || "",
   supabaseServiceRoleKey: process.env.SUPABASE_SERVICE_ROLE_KEY || "",
   googleMapsApiKey: process.env.GOOGLE_MAPS_API_KEY || "",
+  tomtomApiKey: process.env.TOMTOM_API_KEY || "",
+  distanceProvider: process.env.DISTANCE_PROVIDER || "tomtom",
   loqateApiKey: process.env.NEXT_PUBLIC_LOQATE_API_KEY || "",
   twilioSid: process.env.TWILIO_ACCOUNT_SID || "",
   twilioAuthToken: process.env.TWILIO_AUTH_TOKEN || "",

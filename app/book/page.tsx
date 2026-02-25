@@ -22,7 +22,7 @@ type AddressValidation = {
 
 type AvailableSlotsResponse = {
   featured_slots: Slot[];
-  all_slots: Record<string, Slot[]>;
+  all_slots?: Record<string, Slot[]>;
 };
 
 type BookingResponse = {
@@ -56,7 +56,10 @@ function BookingPageInner() {
   const [readiness, setReadiness] = useState<ReadinessLevel | null>(null);
   const [duration, setDuration] = useState<number>(30);
   const [featuredSlots, setFeaturedSlots] = useState<Slot[]>([]);
-  const [allSlots, setAllSlots] = useState<Record<string, Slot[]>>({});
+  const [showPreferenceFlow, setShowPreferenceFlow] = useState(false);
+  const [preferredDate, setPreferredDate] = useState("");
+  const [preferredWindow, setPreferredWindow] = useState<"morning" | "afternoon" | "evening">("morning");
+  const [preferredSlots, setPreferredSlots] = useState<Slot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [name, setName] = useState(prefill.name);
   const [email, setEmail] = useState(prefill.email);
@@ -100,7 +103,8 @@ function BookingPageInner() {
       });
       setSelectedSlot(null);
       setFeaturedSlots(result.featured_slots || []);
-      setAllSlots(result.all_slots || {});
+      setPreferredSlots([]);
+      setShowPreferenceFlow(false);
       setStatus("");
       setStep(3);
     } catch (e) {
@@ -152,6 +156,8 @@ function BookingPageInner() {
           readiness_level: readiness,
           duration_mins: duration,
           selected_slot: selectedSlot,
+          preferred_date: preferredDate || null,
+          preferred_window: preferredWindow || null,
           coords,
         }),
       });
@@ -159,6 +165,29 @@ function BookingPageInner() {
       setError("");
     } catch (e) {
       setError(e instanceof Error ? e.message : "Could not submit request");
+    }
+  }
+
+  async function loadPreferredSlots() {
+    if (!coords || !preferredDate) return;
+    try {
+      setError("");
+      setStatus("Finding best matching options...");
+      const result = await apiFetch<{ slots: Slot[] }>("/api/preferred-slots", {
+        method: "POST",
+        body: JSON.stringify({
+          lat: coords.lat,
+          lng: coords.lng,
+          duration_mins: duration,
+          preferred_date: preferredDate,
+          preferred_window: preferredWindow,
+        }),
+      });
+      setPreferredSlots(result.slots || []);
+      setStatus("");
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to load preferred slots");
+      setStatus("");
     }
   }
 
@@ -207,7 +236,7 @@ function BookingPageInner() {
         {step === 3 && (
           <div className="grid">
             <h2>Select a Slot</h2>
-            {!featuredSlots.length && !Object.keys(allSlots).length && (
+            {!featuredSlots.length && (
               <p className="label">No valid slots found right now. Try a different readiness option or check back later.</p>
             )}
             {!!featuredSlots.length && (
@@ -226,27 +255,52 @@ function BookingPageInner() {
                 </div>
               </div>
             )}
-            <h3>All Available Slots (Next 7 Days)</h3>
-            {Object.entries(allSlots).map(([date, dateSlots]) => (
-              <div key={date} className="slot-group">
-                <h3>{date}</h3>
-                <div className="slot-list">
-                  {dateSlots.map((slot) => (
-                    <button
-                      key={`${slot.date}-${slot.start_time}`}
-                      className={`slot ${selectedSlot?.date === slot.date && selectedSlot.start_time === slot.start_time ? "selected" : ""}`}
-                      onClick={() => setSelectedSlot(slot)}
-                    >
-                      {slot.start_time}
-                    </button>
-                  ))}
+            {showPreferenceFlow && (
+              <div className="card">
+                <h3>Can&apos;t find a slot? Tell us your ideal time</h3>
+                <div className="grid grid-2">
+                  <div>
+                    <p className="label">Ideal day</p>
+                    <input type="date" value={preferredDate} onChange={(e) => setPreferredDate(e.target.value)} />
+                  </div>
+                  <div>
+                    <p className="label">Preferred time</p>
+                    <select value={preferredWindow} onChange={(e) => setPreferredWindow(e.target.value as "morning" | "afternoon" | "evening")}>
+                      <option value="morning">Morning</option>
+                      <option value="afternoon">Afternoon</option>
+                      <option value="evening">Evening</option>
+                    </select>
+                  </div>
+                </div>
+                <div className="actions" style={{ marginTop: 10 }}>
+                  <button onClick={loadPreferredSlots} disabled={!preferredDate}>
+                    Find 3 Best Matches
+                  </button>
+                </div>
+                {!!preferredSlots.length && (
+                  <div className="slot-list" style={{ marginTop: 10 }}>
+                    {preferredSlots.map((slot, index) => (
+                      <button
+                        key={`pref-${slot.date}-${slot.start_time}`}
+                        className={`slot ${selectedSlot?.date === slot.date && selectedSlot.start_time === slot.start_time ? "selected" : ""}`}
+                        onClick={() => setSelectedSlot(slot)}
+                      >
+                        #{index + 1} {slot.date} {slot.start_time}
+                      </button>
+                    ))}
+                  </div>
+                )}
+                <div className="actions" style={{ marginTop: 10 }}>
+                  <button className="button-outline" onClick={requestManualBookingHelp}>
+                    Still can&apos;t find a slot
+                  </button>
                 </div>
               </div>
-            ))}
+            )}
             <button disabled={!selectedSlot} onClick={() => setStep(4)}>
               Continue
             </button>
-            <button className="button-outline" onClick={requestManualBookingHelp}>
+            <button className="button-outline" onClick={() => setShowPreferenceFlow((v) => !v)}>
               Can&apos;t see a slot that works for you?
             </button>
           </div>

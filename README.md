@@ -29,6 +29,7 @@ npm run dev
 
 - `POST /api/validate-address`
 - `POST /api/available-slots`
+- `POST /api/preferred-slots`
 - `POST /api/slot-help-request`
 - `POST /api/book`
 - `POST /api/cancel`
@@ -41,4 +42,5 @@ npm run dev
 
 - Route validation is implemented in `lib/scheduler.ts`.
 - 24h and 2h reminders are stubbed in `lib/notifications.ts` for cron/queue integration.
+- Distance calculations default to TomTom (`TOMTOM_API_KEY`, `DISTANCE_PROVIDER=tomtom`) with Google fallback.
 - Google Calendar integration creates an event on booking and deletes it on cancellation when calendar env vars are set.

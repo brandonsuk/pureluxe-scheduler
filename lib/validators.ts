@@ -36,6 +36,14 @@ export const bookSchema = z.object({
   readiness_level: readinessSchema,
 });
 
+export const preferredSlotsSchema = z.object({
+  lat: z.coerce.number(),
+  lng: z.coerce.number(),
+  duration_mins: z.coerce.number().int().min(30).max(180),
+  preferred_date: z.string(),
+  preferred_window: z.enum(["morning", "afternoon", "evening"]),
+});
+
 export const cancelSchema = z.object({
   appointment_id: z.string().uuid(),
   admin_password: z.string().min(1),

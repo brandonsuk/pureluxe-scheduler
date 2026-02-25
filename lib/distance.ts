@@ -16,7 +16,59 @@ type MatrixResponse = {
   }>;
 };
 
+type TomTomRouteResponse = {
+  routes?: Array<{
+    summary?: {
+      travelTimeInSeconds?: number;
+    };
+  }>;
+};
+
+const driveCache = new Map<string, { expiresAt: number; minutes: number }>();
+const CACHE_TTL_MS = 10 * 60 * 1000;
+
+function cacheKey(origin: Location, destination: Location): string {
+  return [
+    origin.lat.toFixed(5),
+    origin.lng.toFixed(5),
+    destination.lat.toFixed(5),
+    destination.lng.toFixed(5),
+    env.distanceProvider,
+  ].join("|");
+}
+
 export async function getDriveMinutes(origin: Location, destination: Location): Promise<number> {
+  const key = cacheKey(origin, destination);
+  const hit = driveCache.get(key);
+  if (hit && hit.expiresAt > Date.now()) return hit.minutes;
+
+  const minutes = env.distanceProvider === "tomtom" && env.tomtomApiKey
+    ? await getTomTomDriveMinutes(origin, destination)
+    : await getGoogleDriveMinutes(origin, destination);
+
+  driveCache.set(key, { minutes, expiresAt: Date.now() + CACHE_TTL_MS });
+  return minutes;
+}
+
+async function getTomTomDriveMinutes(origin: Location, destination: Location): Promise<number> {
+  const coords = `${origin.lat},${origin.lng}:${destination.lat},${destination.lng}`;
+  const url = new URL(`https://api.tomtom.com/routing/1/calculateRoute/${coords}/json`);
+  url.searchParams.set("key", env.tomtomApiKey);
+  url.searchParams.set("traffic", "true");
+  url.searchParams.set("travelMode", "car");
+  url.searchParams.set("routeType", "fastest");
+
+  const response = await fetch(url.toString());
+  if (!response.ok) throw new Error("Failed to fetch drive time (TomTom)");
+
+  const data = (await response.json()) as TomTomRouteResponse;
+  const seconds = data.routes?.[0]?.summary?.travelTimeInSeconds;
+  if (!seconds) throw new Error("Drive time unavailable for route (TomTom)");
+
+  return Math.ceil(seconds / 60);
+}
+
+async function getGoogleDriveMinutes(origin: Location, destination: Location): Promise<number> {
   const url = new URL("https://maps.googleapis.com/maps/api/distancematrix/json");
   url.searchParams.set("origins", `${origin.lat},${origin.lng}`);
   url.searchParams.set("destinations", `${destination.lat},${destination.lng}`);
