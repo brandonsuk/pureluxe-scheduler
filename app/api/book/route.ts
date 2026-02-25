@@ -5,6 +5,7 @@ import { addMins } from "@/lib/time";
 import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
 import { sendBookingNotifications } from "@/lib/notifications";
+import { createCalendarEvent } from "@/lib/google-calendar";
 
 export const OPTIONS = corsOptions;
 
@@ -74,6 +75,29 @@ export async function POST(request: Request) {
 
     if (error || !data) return jsonError(error?.message || "Failed to create appointment", request, 500);
 
+    let googleEventId: string | null = null;
+    try {
+      googleEventId = await createCalendarEvent({
+        appointmentId: data.id,
+        date: payload.date,
+        startTime: payload.start_time,
+        endTime,
+        clientName: payload.client_name,
+        clientPhone: payload.client_phone,
+        clientEmail: payload.client_email,
+        address: payload.address,
+        readinessLevel: payload.readiness_level,
+        durationMins: payload.duration_mins,
+      });
+
+      if (googleEventId) {
+        await supabaseAdmin.from("appointments").update({ google_event_id: googleEventId }).eq("id", data.id);
+      }
+    } catch (calendarError) {
+      // eslint-disable-next-line no-console
+      console.error("google_calendar_create_failed", calendarError);
+    }
+
     await sendBookingNotifications({
       clientName: payload.client_name,
       clientEmail: payload.client_email,
@@ -93,6 +117,7 @@ export async function POST(request: Request) {
           date: data.date,
           time: data.start_time,
         },
+        google_calendar_synced: Boolean(googleEventId),
       },
       request,
     );

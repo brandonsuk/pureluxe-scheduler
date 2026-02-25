@@ -20,6 +20,7 @@ create table if not exists appointments (
   address text not null,
   lat double precision not null,
   lng double precision not null,
+  google_event_id text,
   readiness_level text not null check (readiness_level in ('ready', 'partial', 'unsure')),
   status text not null default 'confirmed' check (status in ('confirmed', 'cancelled', 'completed')),
   created_at timestamptz not null default now()

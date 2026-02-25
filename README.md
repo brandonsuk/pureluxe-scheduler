@@ -18,6 +18,8 @@ cp .env.example .env.local
 3. Apply schema and seed in Supabase SQL editor:
 - `supabase/schema.sql`
 - `supabase/seed.sql`
+- If upgrading an existing database, also run:
+- `supabase/google_calendar_migration.sql`
 4. Run dev server
 ```bash
 npm run dev
@@ -39,3 +41,4 @@ npm run dev
 
 - Route validation is implemented in `lib/scheduler.ts`.
 - 24h and 2h reminders are stubbed in `lib/notifications.ts` for cron/queue integration.
+- Google Calendar integration creates an event on booking and deletes it on cancellation when calendar env vars are set.

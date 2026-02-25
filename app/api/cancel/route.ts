@@ -4,6 +4,7 @@ import { jsonError, jsonOk } from "@/lib/http";
 import { cancelSchema } from "@/lib/validators";
 import { supabaseAdmin } from "@/lib/supabase";
 import { sendCancellationNotifications } from "@/lib/notifications";
+import { cancelCalendarEvent } from "@/lib/google-calendar";
 
 export const OPTIONS = corsOptions;
 
@@ -19,7 +20,7 @@ export async function POST(request: Request) {
 
     const { data: appointment, error: fetchError } = await supabaseAdmin
       .from("appointments")
-      .select("id,client_email,client_phone,date,start_time")
+      .select("id,client_email,client_phone,date,start_time,google_event_id")
       .eq("id", parsed.data.appointment_id)
       .single();
 
@@ -31,6 +32,13 @@ export async function POST(request: Request) {
       .eq("id", parsed.data.appointment_id);
 
     if (error) return jsonError(error.message, request, 500);
+
+    try {
+      await cancelCalendarEvent(appointment.google_event_id);
+    } catch (calendarError) {
+      // eslint-disable-next-line no-console
+      console.error("google_calendar_cancel_failed", calendarError);
+    }
 
     await sendCancellationNotifications({
       clientEmail: appointment.client_email,
