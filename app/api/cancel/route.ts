@@ -18,18 +18,23 @@ export async function POST(request: Request) {
       return jsonError("Unauthorized", request, 401);
     }
 
+    const appointmentId = parsed.data.appointment_id.trim();
+
     const { data: appointment, error: fetchError } = await supabaseAdmin
       .from("appointments")
       .select("id,client_email,client_phone,date,start_time,google_event_id")
-      .eq("id", parsed.data.appointment_id)
-      .single();
+      .eq("id", appointmentId)
+      .maybeSingle();
 
-    if (fetchError || !appointment) return jsonError("Appointment not found", request, 404);
+    if (fetchError) {
+      return jsonError("Failed to load appointment", request, 500, { db_error: fetchError.message, appointment_id: appointmentId });
+    }
+    if (!appointment) return jsonError("Appointment not found", request, 404, { appointment_id: appointmentId });
 
     const { error } = await supabaseAdmin
       .from("appointments")
       .update({ status: "cancelled" })
-      .eq("id", parsed.data.appointment_id);
+      .eq("id", appointmentId);
 
     if (error) return jsonError(error.message, request, 500);
 
