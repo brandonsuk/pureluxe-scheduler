@@ -4,7 +4,7 @@ import { jsonError, jsonOk } from "@/lib/http";
 import { cancelSchema } from "@/lib/validators";
 import { supabaseAdmin } from "@/lib/supabase";
 import { sendCancellationNotifications } from "@/lib/notifications";
-import { cancelCalendarEvent } from "@/lib/google-calendar";
+import { cancelCalendarEvent, cancelCalendarEventByAppointmentId } from "@/lib/google-calendar";
 
 export const OPTIONS = corsOptions;
 
@@ -39,7 +39,11 @@ export async function POST(request: Request) {
     if (error) return jsonError(error.message, request, 500);
 
     try {
-      await cancelCalendarEvent(appointment.google_event_id);
+      if (appointment.google_event_id) {
+        await cancelCalendarEvent(appointment.google_event_id);
+      } else {
+        await cancelCalendarEventByAppointmentId(appointment.id);
+      }
     } catch (calendarError) {
       // eslint-disable-next-line no-console
       console.error("google_calendar_cancel_failed", calendarError);

@@ -72,3 +72,26 @@ export async function cancelCalendarEvent(eventId: string | null | undefined): P
   });
 }
 
+export async function cancelCalendarEventByAppointmentId(appointmentId: string): Promise<boolean> {
+  if (!appointmentId || !isCalendarConfigured()) return false;
+
+  const calendar = getCalendarClient();
+  const list = await calendar.events.list({
+    calendarId: env.googleCalendarId,
+    q: appointmentId,
+    singleEvents: true,
+    maxResults: 10,
+  });
+
+  const match = list.data.items?.find((event) =>
+    event.description?.includes(`Appointment ID: ${appointmentId}`),
+  );
+  if (!match?.id) return false;
+
+  await calendar.events.delete({
+    calendarId: env.googleCalendarId,
+    eventId: match.id,
+  });
+
+  return true;
+}
