@@ -35,6 +35,7 @@ export default function AdminPage() {
   const [hours, setHours] = useState<WorkingHour[]>([]);
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
+  const [syncing, setSyncing] = useState(false);
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -125,6 +126,27 @@ export default function AdminPage() {
     }
   }
 
+  async function runCalendarSyncNow() {
+    try {
+      setError("");
+      setStatus("Running calendar sync...");
+      setSyncing(true);
+      const result = await apiFetch<{ checked: number; out_of_sync: number; missing: number }>(
+        "/api/calendar-sync-run",
+        {
+          method: "POST",
+          body: JSON.stringify({ admin_password: password }),
+        },
+      );
+      await loadAppointments(password);
+      setStatus(`Calendar sync complete: checked ${result.checked}, out of sync ${result.out_of_sync}, missing ${result.missing}.`);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Calendar sync failed");
+    } finally {
+      setSyncing(false);
+    }
+  }
+
   if (!authenticated) {
     return (
       <main className="shell">
@@ -148,7 +170,12 @@ export default function AdminPage() {
         <h1>Admin Panel</h1>
 
         <section className="card">
-          <h2>Upcoming Appointments</h2>
+          <div className="actions" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <h2 style={{ margin: 0 }}>Upcoming Appointments</h2>
+            <button onClick={runCalendarSyncNow} disabled={syncing}>
+              {syncing ? "Syncing..." : "Run Calendar Sync Now"}
+            </button>
+          </div>
           <div className="list">
             {appointments.map((appt) => (
               <div key={appt.id} className="card">

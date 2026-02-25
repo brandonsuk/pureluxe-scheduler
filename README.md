@@ -36,6 +36,7 @@ npm run dev
 - `POST /api/cancel`
 - `GET /api/appointments`
 - `GET /api/calendar-sync-check` (cron, bearer auth)
+- `POST /api/calendar-sync-run` (admin-triggered manual sync)
 - `GET /api/auth`
 - `POST /api/working-hours`
 - `GET /api/working-hours`

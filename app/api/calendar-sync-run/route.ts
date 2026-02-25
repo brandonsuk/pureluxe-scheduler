@@ -1,16 +1,17 @@
 import { env } from "@/lib/env";
+import { corsOptions } from "@/lib/cors";
 import { jsonError, jsonOk } from "@/lib/http";
 import { runCalendarSyncCheck } from "@/lib/calendar-sync";
 
-function isAuthorized(request: Request): boolean {
-  if (!env.cronSecret) return false;
-  const auth = request.headers.get("authorization") || "";
-  return auth === `Bearer ${env.cronSecret}`;
-}
+export const OPTIONS = corsOptions;
 
-export async function GET(request: Request) {
-  if (!isAuthorized(request)) return jsonError("Unauthorized", request, 401);
+export async function POST(request: Request) {
   try {
+    const body = (await request.json()) as { admin_password?: string };
+    if (!body?.admin_password || body.admin_password !== env.adminPassword) {
+      return jsonError("Unauthorized", request, 401);
+    }
+
     const result = await runCalendarSyncCheck(250);
     return jsonOk(result, request);
   } catch (error) {
