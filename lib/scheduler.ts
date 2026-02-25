@@ -109,10 +109,18 @@ export async function validateCandidateSlot(input: SlotInput, existing: Appointm
   const prevEnd = prev ? combineDateTime(prev.date, prev.end_time) : combineDateTime(input.date, "09:00");
   const nextStart = next ? combineDateTime(next.date, next.start_time) : combineDateTime(input.date, "17:00");
 
-  const [prevDrive, nextDrive] = await Promise.all([
-    getDriveMinutes(prevLoc, input.location),
-    getDriveMinutes(input.location, nextLoc),
-  ]);
+  let prevDrive: number;
+  let nextDrive: number;
+  let directPrevToNext: number;
+  try {
+    [prevDrive, nextDrive, directPrevToNext] = await Promise.all([
+      getDriveMinutes(prevLoc, input.location),
+      getDriveMinutes(input.location, nextLoc),
+      getDriveMinutes(prevLoc, nextLoc),
+    ]);
+  } catch {
+    return { valid: false, reason: "route_unavailable" };
+  }
 
   const availableFromPrev = minutesBetween(prevEnd, start);
   const availableToNext = minutesBetween(end, nextStart);
@@ -121,7 +129,6 @@ export async function validateCandidateSlot(input: SlotInput, existing: Appointm
     return { valid: false, reason: "drive_window" };
   }
 
-  const directPrevToNext = await getDriveMinutes(prevLoc, nextLoc);
   return { valid: true, score: prevDrive + nextDrive - directPrevToNext };
 }
 
