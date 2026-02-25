@@ -21,6 +21,11 @@ create table if not exists appointments (
   lat double precision not null,
   lng double precision not null,
   google_event_id text,
+  calendar_last_start timestamptz,
+  calendar_last_end timestamptz,
+  calendar_last_status text,
+  calendar_sync_state text not null default 'in_sync',
+  calendar_last_checked_at timestamptz,
   readiness_level text not null check (readiness_level in ('ready', 'partial', 'unsure')),
   status text not null default 'confirmed' check (status in ('confirmed', 'cancelled', 'completed')),
   created_at timestamptz not null default now()

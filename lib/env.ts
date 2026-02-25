@@ -29,6 +29,7 @@ export const env = {
   googleServiceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "",
   googleServiceAccountPrivateKey: (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
   googleCalendarTimezone: process.env.GOOGLE_CALENDAR_TIMEZONE || "Europe/London",
+  cronSecret: process.env.CRON_SECRET || "",
   adminPassword: process.env.ADMIN_PASSWORD || "",
   homeBaseLat: Number(process.env.HOME_BASE_LAT || 55.7956),
   homeBaseLng: Number(process.env.HOME_BASE_LNG || -3.7939),

@@ -112,6 +112,29 @@ select {
   color: #1b6a3a;
 }
 
+.sync-badge {
+  display: inline-block;
+  font-size: 12px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+}
+
+.sync-in_sync {
+  color: #1b6a3a;
+  background: #e9f6ee;
+}
+
+.sync-out_of_sync {
+  color: #9b1c1c;
+  background: #fdecec;
+}
+
+.sync-missing {
+  color: #8a6a3f;
+  background: #fff4e5;
+}
+
 .slot-group {
   margin-bottom: 14px;
 }

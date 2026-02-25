@@ -14,6 +14,8 @@ type Appointment = {
   duration_mins: number;
   address: string;
   readiness_level: string;
+  calendar_sync_state?: "in_sync" | "out_of_sync" | "missing";
+  calendar_last_checked_at?: string | null;
   lat: number;
   lng: number;
 };
@@ -42,6 +44,12 @@ export default function AdminPage() {
   const [mapDate, setMapDate] = useState("");
 
   const dayAppointments = useMemo(() => appointments.filter((a) => a.date === mapDate), [appointments, mapDate]);
+
+  function syncLabel(state?: Appointment["calendar_sync_state"]) {
+    if (state === "out_of_sync") return "Out of Sync";
+    if (state === "missing") return "Missing in Calendar";
+    return "In Sync";
+  }
 
   const routeEmbedUrl = useMemo(() => {
     if (!dayAppointments.length) return "";
@@ -146,10 +154,13 @@ export default function AdminPage() {
               <div key={appt.id} className="card">
                 <strong>{appt.client_name}</strong>
                 <p>
-                  {appt.date} {appt.start_time} ({appt.duration_mins} mins)
+                  {appt.date} {appt.start_time.slice(0, 5)} ({appt.duration_mins} mins)
                 </p>
                 <p>{appt.address}</p>
                 <p>Readiness: {appt.readiness_level}</p>
+                <p className={`sync-badge sync-${appt.calendar_sync_state || "in_sync"}`}>
+                  Calendar: {syncLabel(appt.calendar_sync_state)}
+                </p>
                 <button onClick={() => cancelAppointment(appt.id)}>Cancel</button>
               </div>
             ))}

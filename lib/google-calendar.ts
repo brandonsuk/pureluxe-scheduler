@@ -14,6 +14,15 @@ type CreateEventInput = {
   durationMins: number;
 };
 
+export type CalendarEventSnapshot =
+  | {
+      exists: true;
+      status: string;
+      startDateTime: string | null;
+      endDateTime: string | null;
+    }
+  | { exists: false };
+
 function isCalendarConfigured(): boolean {
   return Boolean(
     env.googleCalendarId && env.googleServiceAccountEmail && env.googleServiceAccountPrivateKey,
@@ -94,4 +103,24 @@ export async function cancelCalendarEventByAppointmentId(appointmentId: string):
   });
 
   return true;
+}
+
+export async function getCalendarEventSnapshot(eventId: string | null | undefined): Promise<CalendarEventSnapshot> {
+  if (!eventId || !isCalendarConfigured()) return { exists: false };
+
+  const calendar = getCalendarClient();
+  try {
+    const event = await calendar.events.get({
+      calendarId: env.googleCalendarId,
+      eventId,
+    });
+    return {
+      exists: true,
+      status: event.data.status || "confirmed",
+      startDateTime: event.data.start?.dateTime || null,
+      endDateTime: event.data.end?.dateTime || null,
+    };
+  } catch {
+    return { exists: false };
+  }
 }
