@@ -78,8 +78,8 @@ async function getTomTomDriveMinutes(origin: Location, destination: Location): P
 }
 
 async function fetchTomTomRouteMinutes(origin: Location, destination: Location): Promise<number> {
-  // TomTom routing expects "longitude,latitude"
-  const coords = `${origin.lng},${origin.lat}:${destination.lng},${destination.lat}`;
+  // TomTom routing expects "latitude,longitude"
+  const coords = `${origin.lat},${origin.lng}:${destination.lat},${destination.lng}`;
   const url = new URL(`https://api.tomtom.com/routing/1/calculateRoute/${coords}/json`);
   url.searchParams.set("key", env.tomtomApiKey);
   url.searchParams.set("traffic", "true");
