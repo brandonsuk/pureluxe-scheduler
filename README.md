@@ -45,6 +45,6 @@ npm run dev
 
 - Route validation is implemented in `lib/scheduler.ts`.
 - 24h and 2h reminders are stubbed in `lib/notifications.ts` for cron/queue integration.
-- Distance calculations default to TomTom (`TOMTOM_API_KEY`, `DISTANCE_PROVIDER=tomtom`) with Google fallback.
+- Distance calculations are TomTom-only (`TOMTOM_API_KEY`, `DISTANCE_PROVIDER=tomtom`).
 - Google Calendar integration creates an event on booking and deletes it on cancellation when calendar env vars are set.
 - Calendar drift detection is detect-only: `/api/calendar-sync-check` updates `calendar_sync_state` to `in_sync`, `out_of_sync`, or `missing`.

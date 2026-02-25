@@ -42,22 +42,11 @@ export async function getDriveMinutes(origin: Location, destination: Location): 
   const hit = driveCache.get(key);
   if (hit && hit.expiresAt > Date.now()) return hit.minutes;
 
-  let minutes: number;
-  if (env.distanceProvider === "tomtom" && env.tomtomApiKey) {
-    try {
-      minutes = await getTomTomDriveMinutes(origin, destination);
-    } catch (error) {
-      if (env.googleMapsApiKey) {
-        // eslint-disable-next-line no-console
-        console.warn("tomtom_failed_falling_back_to_google", error);
-        minutes = await getGoogleDriveMinutes(origin, destination);
-      } else {
-        throw error;
-      }
-    }
-  } else {
-    minutes = await getGoogleDriveMinutes(origin, destination);
+  if (env.distanceProvider !== "tomtom" || !env.tomtomApiKey) {
+    throw new Error("TomTom distance provider is required");
   }
+
+  const minutes = await getTomTomDriveMinutes(origin, destination);
 
   driveCache.set(key, { minutes, expiresAt: Date.now() + CACHE_TTL_MS });
   return minutes;
