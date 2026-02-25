@@ -85,6 +85,60 @@ function generateCandidateSlots(day: WorkingHours, durationMins: number): Candid
   return slots;
 }
 
+function timeToMinutes(time: string): number {
+  const [h, m] = time.slice(0, 5).split(":").map(Number);
+  return h * 60 + m;
+}
+
+function isSpacedFromSelected(slot: CandidateSlot, selected: CandidateSlot[], minGapMins: number): boolean {
+  const slotMins = timeToMinutes(slot.start_time);
+  return selected.every((s) => {
+    if (s.date !== slot.date) return true;
+    return Math.abs(slotMins - timeToMinutes(s.start_time)) >= minGapMins;
+  });
+}
+
+function pickDiverseSlots(
+  scored: CandidateSlot[],
+  count: number,
+  options: { minGapMins: number; maxPerDay: number; preferDistinctDayFirst?: boolean },
+): CandidateSlot[] {
+  const selected: CandidateSlot[] = [];
+  const perDay = new Map<string, number>();
+
+  if (options.preferDistinctDayFirst) {
+    for (const slot of scored) {
+      if (selected.length >= count) break;
+      if ((perDay.get(slot.date) || 0) > 0) continue;
+      if (!isSpacedFromSelected(slot, selected, options.minGapMins)) continue;
+      selected.push(slot);
+      perDay.set(slot.date, 1);
+    }
+  }
+
+  for (const slot of scored) {
+    if (selected.length >= count) break;
+    if (selected.some((s) => s.date === slot.date && s.start_time === slot.start_time)) continue;
+    if ((perDay.get(slot.date) || 0) >= options.maxPerDay) continue;
+    if (!isSpacedFromSelected(slot, selected, options.minGapMins)) continue;
+    selected.push(slot);
+    perDay.set(slot.date, (perDay.get(slot.date) || 0) + 1);
+  }
+
+  // Final fill pass with relaxed spacing if needed, while preserving per-day cap.
+  if (selected.length < count) {
+    for (const slot of scored) {
+      if (selected.length >= count) break;
+      if (selected.some((s) => s.date === slot.date && s.start_time === slot.start_time)) continue;
+      if ((perDay.get(slot.date) || 0) >= options.maxPerDay) continue;
+      selected.push(slot);
+      perDay.set(slot.date, (perDay.get(slot.date) || 0) + 1);
+    }
+  }
+
+  return selected;
+}
+
 export async function validateCandidateSlot(input: SlotInput, existing: AppointmentWithLoc[]): Promise<ValidationResult> {
   const start = combineDateTime(input.date, input.start_time);
   const end = new Date(start.getTime() + input.duration_mins * 60 * 1000);
@@ -169,7 +223,11 @@ export async function findBestSlots(
   }
 
   const scored = allValid.sort((a, b) => a.score - b.score);
-  const featuredSlots = scored.slice(0, 5);
+  const featuredSlots = pickDiverseSlots(scored, 5, {
+    minGapMins: 60,
+    maxPerDay: 2,
+    preferDistinctDayFirst: true,
+  });
 
   return {
     featured_slots: featuredSlots,
@@ -221,5 +279,8 @@ export async function findPreferredSlots(
     scored.push({ ...candidate, score: result.score + penalty / 10 });
   }
 
-  return scored.sort((a, b) => a.score - b.score).slice(0, 3);
+  return pickDiverseSlots(scored.sort((a, b) => a.score - b.score), 3, {
+    minGapMins: 45,
+    maxPerDay: 3,
+  });
 }
