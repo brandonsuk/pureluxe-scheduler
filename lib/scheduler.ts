@@ -183,8 +183,8 @@ function preferencePenaltyMins(time: string, window: PreferredWindow): number {
   const mins = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
   const ranges = {
     morning: [9 * 60, 12 * 60 - 1],
-    afternoon: [12 * 60, 17 * 60 - 1],
-    evening: [17 * 60, 21 * 60],
+    afternoon: [12 * 60, 15 * 60 - 1],
+    evening: [15 * 60, 18 * 60 - 1],
   } as const;
   const [start, end] = ranges[window];
   if (mins >= start && mins <= end) return 0;

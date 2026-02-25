@@ -268,7 +268,7 @@ function BookingPageInner() {
                     <select value={preferredWindow} onChange={(e) => setPreferredWindow(e.target.value as "morning" | "afternoon" | "evening")}>
                       <option value="morning">Morning</option>
                       <option value="afternoon">Afternoon</option>
-                      <option value="evening">Evening</option>
+                      <option value="evening">Late day</option>
                     </select>
                   </div>
                 </div>
