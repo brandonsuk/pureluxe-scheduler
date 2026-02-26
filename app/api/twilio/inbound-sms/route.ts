@@ -148,7 +148,7 @@ export async function POST(request: Request) {
     clientPhone: nextAppt.client_phone,
     date: nextAppt.date,
     startTime: nextAppt.start_time,
-  });
+  }, { sendSms: false });
 
   return xmlResponse(`Your appointment on ${nextAppt.date} at ${nextAppt.start_time.slice(0, 5)} has been cancelled.`);
 }

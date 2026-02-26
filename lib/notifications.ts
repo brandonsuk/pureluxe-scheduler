@@ -31,11 +31,15 @@ Reply here with the word CA if you need to cancel your appointment.`;
   ]);
 }
 
-export async function sendCancellationNotifications(payload: Pick<BookingPayload, "clientEmail" | "clientPhone" | "date" | "startTime">) {
+export async function sendCancellationNotifications(
+  payload: Pick<BookingPayload, "clientEmail" | "clientPhone" | "date" | "startTime">,
+  options?: { sendSms?: boolean },
+) {
   const text = `Your PureLuxe appointment on ${payload.date} at ${payload.startTime} has been cancelled.`;
+  const sendSmsEnabled = options?.sendSms ?? true;
   await Promise.allSettled([
     sendEmail(payload.clientEmail, "Your PureLuxe appointment was cancelled", text),
-    sendSms(payload.clientPhone, text),
+    ...(sendSmsEnabled ? [sendSms(payload.clientPhone, text)] : []),
   ]);
 }
 
