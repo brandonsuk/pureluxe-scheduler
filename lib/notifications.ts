@@ -17,7 +17,11 @@ type BookingPayload = {
 };
 
 export async function sendBookingNotifications(payload: BookingPayload) {
-  const leadText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins) at ${payload.address}.`;
+  const leadText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins) at ${payload.address}.
+
+Thomas will be coming to quote, his phone number is 07710597590 incase you need it.
+
+Reply here with the word CANCEL if you need to cancel your appointment.`;
   const adminText = `New booking: ${payload.clientName}, ${payload.date} ${payload.startTime}, ${payload.address}, ${payload.durationMins} mins, readiness: ${payload.readinessLevel}.`;
 
   await Promise.allSettled([
