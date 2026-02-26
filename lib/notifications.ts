@@ -68,7 +68,7 @@ function bookingLeadHtml(payload: BookingPayload): string {
       </td></tr>
     </table>
     <p style="margin:16px 0 8px 0;color:#2f2f2f;line-height:1.6;">Thomas will be coming to quote. If needed, call <strong>07710597590</strong>.</p>
-    <p style="margin:0;color:#2f2f2f;line-height:1.6;">To cancel by SMS, reply with <strong>CA</strong>.</p>
+    <p style="margin:0;color:#2f2f2f;line-height:1.6;">To cancel by email, reply with <strong>CA</strong>.</p>
   `,
   );
 }
@@ -85,18 +85,23 @@ function cancellationLeadHtml(date: string, startTime: string): string {
 }
 
 export async function sendBookingNotifications(payload: BookingPayload) {
-  const leadText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins) at ${payload.address}.
+  const leadEmailText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins) at ${payload.address}.
 
 Thomas will be coming to quote, his phone number is 07710597590 incase you need it.
 
-Reply with the word CA by SMS or email if you need to cancel your appointment.`;
+Reply with the word CA to this email if you need to cancel your appointment.`;
+  const leadSmsText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins) at ${payload.address}.
+
+Thomas will be coming to quote, his phone number is 07710597590 incase you need it.
+
+Reply with the word CA by SMS if you need to cancel your appointment.`;
   const adminText = `New booking: ${payload.clientName}, ${payload.date} ${payload.startTime}, ${payload.address}, ${payload.durationMins} mins, readiness: ${payload.readinessLevel}.`;
 
   await Promise.allSettled([
-    sendEmail(payload.clientEmail, "Your PureLuxe appointment is confirmed", leadText, {
+    sendEmail(payload.clientEmail, "Your PureLuxe appointment is confirmed", leadEmailText, {
       html: bookingLeadHtml(payload),
     }),
-    sendSms(payload.clientPhone, leadText),
+    sendSms(payload.clientPhone, leadSmsText),
     sendEmail("admin@pureluxe.co.uk", "New PureLuxe booking", adminText),
   ]);
 }
