@@ -21,7 +21,7 @@ export async function sendBookingNotifications(payload: BookingPayload) {
 
 Thomas will be coming to quote, his phone number is 07710597590 incase you need it.
 
-Reply here with the word CANCEL if you need to cancel your appointment.`;
+Reply here with the word CA if you need to cancel your appointment.`;
   const adminText = `New booking: ${payload.clientName}, ${payload.date} ${payload.startTime}, ${payload.address}, ${payload.durationMins} mins, readiness: ${payload.readinessLevel}.`;
 
   await Promise.allSettled([

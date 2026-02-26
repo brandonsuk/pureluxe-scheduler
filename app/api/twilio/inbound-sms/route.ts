@@ -59,7 +59,7 @@ function parseBody(formBody: string): Record<string, string> {
 }
 
 function commandIsCancel(body: string): boolean {
-  return body.trim().toUpperCase() === "CANCEL";
+  return body.trim().toUpperCase() === "CA";
 }
 
 function possibleRequestUrls(request: Request): string[] {
@@ -93,7 +93,7 @@ export async function POST(request: Request) {
   const body = payload.Body || "";
 
   if (!commandIsCancel(body)) {
-    return xmlResponse("Reply CANCEL to cancel your next upcoming appointment.");
+    return xmlResponse("Reply CA to cancel your next upcoming appointment.");
   }
 
   const numbers = phoneCandidates(from);
