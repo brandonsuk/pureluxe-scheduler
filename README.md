@@ -37,6 +37,7 @@ npm run dev
 - `POST /api/book`
 - `POST /api/cancel`
 - `POST /api/twilio/inbound-sms`
+- `POST /api/resend/inbound-email`
 - `GET /api/appointments`
 - `GET /api/calendar-sync-check` (cron, bearer auth)
 - `POST /api/calendar-sync-run` (admin-triggered manual sync)
@@ -56,3 +57,4 @@ npm run dev
 - Open-slot sync imports Google Calendar events titled `Open slots` into `working_hour_windows` (source `google_open_slots`). Slot generation uses only these synced windows (no fallback to `working_hours`).
 - `POST /api/preferred-slots` supports optional `preferred_time` (`HH:mm`) so exact-time preference can influence ranking while drive efficiency remains dominant.
 - Twilio inbound SMS webhook supports `CA` command and cancels the sender's next upcoming confirmed appointment.
+- Resend inbound email webhook supports `CA` in reply body and cancels the sender's next upcoming confirmed appointment.
