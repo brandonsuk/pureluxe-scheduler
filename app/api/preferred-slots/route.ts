@@ -16,6 +16,7 @@ export async function POST(request: Request) {
       parsed.data.duration_mins,
       parsed.data.preferred_date,
       parsed.data.preferred_window,
+      parsed.data.preferred_time,
     );
 
     return jsonOk({ slots }, request);

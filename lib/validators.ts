@@ -42,6 +42,10 @@ export const preferredSlotsSchema = z.object({
   duration_mins: z.coerce.number().int().min(30).max(180),
   preferred_date: z.string(),
   preferred_window: z.enum(["morning", "afternoon", "evening"]),
+  preferred_time: z
+    .string()
+    .regex(/^([01]\d|2[0-3]):([0-5]\d)$/)
+    .optional(),
 });
 
 export const availableDatesSchema = z.object({

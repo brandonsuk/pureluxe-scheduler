@@ -339,6 +339,7 @@ export async function findPreferredSlots(
   durationMins: number,
   preferredDate: string,
   preferredWindow: PreferredWindow,
+  preferredTime?: string,
 ): Promise<CandidateSlot[]> {
   const existing = await fetchDayAppointments(preferredDate);
   const day = (await fetchWorkingDays(preferredDate, 1)).find((d) => d.date === preferredDate);
@@ -360,6 +361,14 @@ export async function findPreferredSlots(
     if (!result.valid || typeof result.score !== "number") continue;
 
     const penalty = preferencePenaltyMins(candidate.start_time, preferredWindow);
+    if (preferredTime) {
+      const timeDistanceMins = Math.abs(timeToMinutes(candidate.start_time) - timeToMinutes(preferredTime));
+      const exactTimePenalty = timeDistanceMins / 15; // 1 point per 15 minutes away from requested time
+      const efficiencyDominantScore = result.score * 0.8 + (penalty / 10 + exactTimePenalty) * 0.2;
+      scored.push({ ...candidate, score: efficiencyDominantScore });
+      continue;
+    }
+
     scored.push({ ...candidate, score: result.score + penalty / 10 });
   }
 

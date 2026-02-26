@@ -59,6 +59,7 @@ function BookingPageInner() {
   const [showPreferenceFlow, setShowPreferenceFlow] = useState(false);
   const [preferredDate, setPreferredDate] = useState("");
   const [preferredWindow, setPreferredWindow] = useState<"morning" | "afternoon" | "evening">("morning");
+  const [preferredTime, setPreferredTime] = useState("12:00");
   const [preferredSlots, setPreferredSlots] = useState<Slot[]>([]);
   const [selectedSlot, setSelectedSlot] = useState<Slot | null>(null);
   const [name, setName] = useState(prefill.name);
@@ -181,6 +182,7 @@ function BookingPageInner() {
           duration_mins: duration,
           preferred_date: preferredDate,
           preferred_window: preferredWindow,
+          preferred_time: preferredTime,
         }),
       });
       setPreferredSlots(result.slots || []);
@@ -270,6 +272,10 @@ function BookingPageInner() {
                       <option value="afternoon">Afternoon</option>
                       <option value="evening">Late day</option>
                     </select>
+                  </div>
+                  <div>
+                    <p className="label">Exact time (optional)</p>
+                    <input type="time" value={preferredTime} onChange={(e) => setPreferredTime(e.target.value)} />
                   </div>
                 </div>
                 <div className="actions" style={{ marginTop: 10 }}>
