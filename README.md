@@ -36,6 +36,7 @@ npm run dev
 - `POST /api/slot-help-request`
 - `POST /api/book`
 - `POST /api/cancel`
+- `POST /api/twilio/inbound-sms`
 - `GET /api/appointments`
 - `GET /api/calendar-sync-check` (cron, bearer auth)
 - `POST /api/calendar-sync-run` (admin-triggered manual sync)
@@ -54,3 +55,4 @@ npm run dev
 - Calendar drift detection is detect-only: `/api/calendar-sync-check` updates `calendar_sync_state` to `in_sync`, `out_of_sync`, or `missing`.
 - Open-slot sync imports Google Calendar events titled `Open slots` into `working_hour_windows` (source `google_open_slots`). Slot generation uses only these synced windows (no fallback to `working_hours`).
 - `POST /api/preferred-slots` supports optional `preferred_time` (`HH:mm`) so exact-time preference can influence ranking while drive efficiency remains dominant.
+- Twilio inbound SMS webhook supports `CANCEL` command and cancels the sender's next upcoming confirmed appointment.
