@@ -6,6 +6,8 @@ import { supabaseAdmin } from "@/lib/supabase";
 type SyncResult = {
   window_start: string;
   window_end: string;
+  scanned: number;
+  matched_open_slots: number;
   imported: number;
   skipped: number;
 };
@@ -59,7 +61,6 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     calendarId,
     timeMinIso,
     timeMaxIso,
-    query: "open slots",
     maxResults: 2500,
   });
 
@@ -72,10 +73,12 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     google_event_id: string;
   }> = [];
   let skipped = 0;
+  let matchedOpenSlots = 0;
 
   for (const event of events) {
     if (event.status === "cancelled") continue;
     if (!/open slots?/i.test(event.summary || "")) continue;
+    matchedOpenSlots += 1;
 
     const start = formatInTimezone(event.startDateTime, env.googleCalendarTimezone);
     const end = formatInTimezone(event.endDateTime, env.googleCalendarTimezone);
@@ -123,6 +126,8 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
   return {
     window_start: startDate,
     window_end: endDate,
+    scanned: events.length,
+    matched_open_slots: matchedOpenSlots,
     imported: rows.length,
     skipped,
   };
