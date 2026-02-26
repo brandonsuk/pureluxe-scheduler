@@ -319,7 +319,7 @@ export async function findBestSlots(
   };
 }
 
-type PreferredWindow = "morning" | "afternoon" | "evening";
+export type PreferredWindow = "morning" | "afternoon" | "evening";
 
 function preferencePenaltyMins(time: string, window: PreferredWindow): number {
   const mins = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
@@ -367,4 +367,23 @@ export async function findPreferredSlots(
     minGapMins: 45,
     maxPerDay: 3,
   });
+}
+
+export async function findAvailableDates(
+  location: Location,
+  durationMins: number,
+  preferredWindow: PreferredWindow,
+  fromDate?: string,
+  daysAhead = 14,
+): Promise<string[]> {
+  const days = await fetchWorkingDays(fromDate, daysAhead);
+  const uniqueDates = [...new Set(days.map((d) => d.date))].sort((a, b) => a.localeCompare(b));
+  const availableDates: string[] = [];
+
+  for (const date of uniqueDates) {
+    const slots = await findPreferredSlots(location, durationMins, date, preferredWindow);
+    if (slots.length > 0) availableDates.push(date);
+  }
+
+  return availableDates;
 }

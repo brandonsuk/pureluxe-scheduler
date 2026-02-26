@@ -31,6 +31,7 @@ npm run dev
 
 - `POST /api/validate-address`
 - `POST /api/available-slots`
+- `POST /api/available-dates`
 - `POST /api/preferred-slots`
 - `POST /api/slot-help-request`
 - `POST /api/book`

@@ -44,6 +44,15 @@ export const preferredSlotsSchema = z.object({
   preferred_window: z.enum(["morning", "afternoon", "evening"]),
 });
 
+export const availableDatesSchema = z.object({
+  lat: z.coerce.number(),
+  lng: z.coerce.number(),
+  duration_mins: z.coerce.number().int().min(30).max(180),
+  preferred_window: z.enum(["morning", "afternoon", "evening"]),
+  from_date: z.string().optional(),
+  days_ahead: z.coerce.number().int().min(1).max(60).optional(),
+});
+
 export const cancelSchema = z.object({
   appointment_id: z.string().uuid(),
   admin_password: z.string().min(1),
