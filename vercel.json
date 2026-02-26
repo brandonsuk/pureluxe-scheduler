@@ -3,6 +3,10 @@
     {
       "path": "/api/calendar-sync-check",
       "schedule": "0 3 * * *"
+    },
+    {
+      "path": "/api/open-slots-sync-check",
+      "schedule": "0 3 * * *"
     }
   ]
 }
