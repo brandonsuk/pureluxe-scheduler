@@ -32,7 +32,7 @@ function emailShell(title: string, bodyHtml: string): string {
             <tr>
               <td style="background:#171717;padding:20px 24px;">
                 <p style="margin:0;color:#d5b36a;font-size:12px;letter-spacing:2px;text-transform:uppercase;">PureLuxe</p>
-                <h1 style="margin:8px 0 0 0;color:#ffffff;font-size:22px;font-weight:700;">Luxury Bathroom Quotations</h1>
+                <h1 style="margin:8px 0 0 0;color:#ffffff;font-size:22px;font-weight:700;">Scotland&apos;s Finest Bathrooms</h1>
               </td>
             </tr>
             <tr>
