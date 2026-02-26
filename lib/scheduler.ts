@@ -257,8 +257,10 @@ export async function validateCandidateSlot(input: SlotInput, existing: Appointm
 
   const availableFromPrev = minutesBetween(prevEnd, start);
   const availableToNext = minutesBetween(end, nextStart);
+  const prevLegFits = prev ? prevDrive <= availableFromPrev : true;
+  const nextLegFits = nextDrive <= availableToNext;
 
-  if (prevDrive > availableFromPrev || nextDrive > availableToNext) {
+  if (!prevLegFits || !nextLegFits) {
     return { valid: false, reason: "drive_window" };
   }
 
