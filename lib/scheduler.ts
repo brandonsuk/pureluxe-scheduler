@@ -74,19 +74,18 @@ function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
 function generateCandidateSlots(day: WorkingHours, durationMins: number): CandidateSlot[] {
   const slots: CandidateSlot[] = [];
   const windowStart = combineDateTime(day.date, day.start_time);
-  const windowEnd = combineDateTime(day.date, day.end_time);
+  const latestStart = combineDateTime(day.date, day.end_time);
 
-  for (let cursor = windowStart; cursor < windowEnd; cursor = new Date(cursor.getTime() + 15 * 60 * 1000)) {
+  // `end_time` is interpreted as the latest arrival/start time, not finish time.
+  for (let cursor = windowStart; cursor <= latestStart; cursor = new Date(cursor.getTime() + 15 * 60 * 1000)) {
     const end = new Date(cursor.getTime() + durationMins * 60 * 1000);
-    if (end <= windowEnd) {
-      slots.push({
-        date: day.date,
-        start_time: format(cursor, "HH:mm"),
-        end_time: format(end, "HH:mm"),
-        duration_mins: durationMins,
-        score: Number.POSITIVE_INFINITY,
-      });
-    }
+    slots.push({
+      date: day.date,
+      start_time: format(cursor, "HH:mm"),
+      end_time: format(end, "HH:mm"),
+      duration_mins: durationMins,
+      score: Number.POSITIVE_INFINITY,
+    });
   }
 
   return slots;
