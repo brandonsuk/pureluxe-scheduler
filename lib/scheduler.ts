@@ -35,60 +35,21 @@ export async function fetchWorkingDays(fromDate?: string, limit = 14): Promise<W
     .gte("date", start)
     .lte("date", end)
     .eq("is_available", true)
+    .eq("source", "google_open_slots")
     .order("date", { ascending: true })
-    .order("start_time", { ascending: true });
+    .order("start_time", { ascending: true })
+    .limit(limit * 8);
   if (windowsError) {
     throw new Error(windowsError.message);
   }
 
-  const { data: fallbackHours, error } = await supabaseAdmin
-    .from("working_hours")
-    .select("id,date,start_time,end_time,is_available")
-    .gte("date", start)
-    .lte("date", end)
-    .eq("is_available", true)
-    .order("date", { ascending: true });
-
-  if (error) {
-    throw new Error(error.message);
-  }
-
-  const windowsByDate = new Map<string, WorkingHourWindow[]>();
-  for (const row of (windows || []) as WorkingHourWindow[]) {
-    const list = windowsByDate.get(row.date) || [];
-    list.push(row);
-    windowsByDate.set(row.date, list);
-  }
-
-  const merged: WorkingHours[] = [];
-  const fallbackByDate = new Map<string, WorkingHours>();
-  for (const row of (fallbackHours || []) as WorkingHours[]) {
-    fallbackByDate.set(row.date, row);
-  }
-
-  const allDates = new Set<string>([...windowsByDate.keys(), ...fallbackByDate.keys()]);
-  const sortedDates = [...allDates].sort((a, b) => a.localeCompare(b));
-
-  for (const date of sortedDates) {
-    const windowRows = windowsByDate.get(date) || [];
-    if (windowRows.length > 0) {
-      for (const windowRow of windowRows) {
-        merged.push({
-          id: windowRow.id,
-          date: windowRow.date,
-          start_time: windowRow.start_time,
-          end_time: windowRow.end_time,
-          is_available: windowRow.is_available,
-        });
-      }
-      continue;
-    }
-
-    const fallback = fallbackByDate.get(date);
-    if (fallback) merged.push(fallback);
-  }
-
-  return merged;
+  return ((windows || []) as WorkingHourWindow[]).map((windowRow) => ({
+    id: windowRow.id,
+    date: windowRow.date,
+    start_time: windowRow.start_time,
+    end_time: windowRow.end_time,
+    is_available: windowRow.is_available,
+  }));
 }
 
 export async function fetchDayAppointments(date: string): Promise<AppointmentWithLoc[]> {

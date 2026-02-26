@@ -51,4 +51,4 @@ npm run dev
 - Distance calculations are TomTom-only (`TOMTOM_API_KEY`, `DISTANCE_PROVIDER=tomtom`).
 - Google Calendar integration creates an event on booking and deletes it on cancellation when calendar env vars are set.
 - Calendar drift detection is detect-only: `/api/calendar-sync-check` updates `calendar_sync_state` to `in_sync`, `out_of_sync`, or `missing`.
-- Open-slot sync imports Google Calendar events titled `Open slots` into `working_hour_windows` (source `google_open_slots`) and these windows take precedence over `working_hours` in slot generation.
+- Open-slot sync imports Google Calendar events titled `Open slots` into `working_hour_windows` (source `google_open_slots`). Slot generation uses only these synced windows (no fallback to `working_hours`).
