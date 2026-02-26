@@ -23,6 +23,14 @@ export type CalendarEventSnapshot =
     }
   | { exists: false };
 
+export type CalendarListEvent = {
+  id: string;
+  summary: string;
+  status: string;
+  startDateTime: string | null;
+  endDateTime: string | null;
+};
+
 function isCalendarConfigured(): boolean {
   return Boolean(
     env.googleCalendarId && env.googleServiceAccountEmail && env.googleServiceAccountPrivateKey,
@@ -123,4 +131,37 @@ export async function getCalendarEventSnapshot(eventId: string | null | undefine
   } catch {
     return { exists: false };
   }
+}
+
+export async function listCalendarEvents(params: {
+  calendarId?: string;
+  timeMinIso: string;
+  timeMaxIso: string;
+  query?: string;
+  maxResults?: number;
+}): Promise<CalendarListEvent[]> {
+  const calendarId = params.calendarId || env.googleCalendarId;
+  if (!calendarId || !isCalendarConfigured()) return [];
+
+  const calendar = getCalendarClient();
+  const response = await calendar.events.list({
+    calendarId,
+    timeMin: params.timeMinIso,
+    timeMax: params.timeMaxIso,
+    singleEvents: true,
+    orderBy: "startTime",
+    q: params.query,
+    maxResults: params.maxResults || 2500,
+  });
+
+  const events = response.data.items || [];
+  return events
+    .filter((event) => Boolean(event.id))
+    .map((event) => ({
+      id: event.id!,
+      summary: event.summary || "",
+      status: event.status || "confirmed",
+      startDateTime: event.start?.dateTime || null,
+      endDateTime: event.end?.dateTime || null,
+    }));
 }

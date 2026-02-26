@@ -52,7 +52,17 @@ export async function GET(request: Request) {
   const from = fromDate || format(new Date(), "yyyy-MM-dd");
   const to = format(addDays(new Date(from), 7), "yyyy-MM-dd");
 
-  const { data, error } = await supabaseAdmin
+  const { data: windows, error: windowsError } = await supabaseAdmin
+    .from("working_hour_windows")
+    .select("id,date,start_time,end_time,is_available,source,google_event_id")
+    .gte("date", from)
+    .lte("date", to)
+    .eq("is_available", true)
+    .order("date", { ascending: true })
+    .order("start_time", { ascending: true });
+  if (windowsError) return jsonError(windowsError.message, request, 500);
+
+  const { data: fallbackHours, error } = await supabaseAdmin
     .from("working_hours")
     .select("*")
     .gte("date", from)
@@ -60,5 +70,30 @@ export async function GET(request: Request) {
     .order("date", { ascending: true });
 
   if (error) return jsonError(error.message, request, 500);
-  return jsonOk({ hours: data || [] }, request);
+
+  const windowsByDate = new Map<string, Array<Record<string, unknown>>>();
+  for (const row of windows || []) {
+    const list = windowsByDate.get(row.date) || [];
+    list.push(row);
+    windowsByDate.set(row.date, list);
+  }
+
+  const fallbackByDate = new Map<string, Record<string, unknown>>();
+  for (const row of fallbackHours || []) {
+    fallbackByDate.set(row.date, row);
+  }
+
+  const allDates = new Set<string>([...windowsByDate.keys(), ...fallbackByDate.keys()]);
+  const merged: Array<Record<string, unknown>> = [];
+  for (const date of [...allDates].sort((a, b) => a.localeCompare(b))) {
+    const windowRows = windowsByDate.get(date) || [];
+    if (windowRows.length) {
+      merged.push(...windowRows);
+      continue;
+    }
+    const fallback = fallbackByDate.get(date);
+    if (fallback) merged.push(fallback);
+  }
+
+  return jsonOk({ hours: merged }, request);
 }

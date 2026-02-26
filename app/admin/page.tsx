@@ -26,6 +26,7 @@ type WorkingHour = {
   start_time: string;
   end_time: string;
   is_available: boolean;
+  source?: "manual" | "google_open_slots";
 };
 
 export default function AdminPage() {
@@ -36,6 +37,7 @@ export default function AdminPage() {
   const [status, setStatus] = useState("");
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
+  const [syncingOpenSlots, setSyncingOpenSlots] = useState(false);
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -147,6 +149,29 @@ export default function AdminPage() {
     }
   }
 
+  async function runOpenSlotsSyncNow() {
+    try {
+      setError("");
+      setStatus("Syncing open slots from Google Calendar...");
+      setSyncingOpenSlots(true);
+      const result = await apiFetch<{ window_start: string; window_end: string; imported: number; skipped: number }>(
+        "/api/open-slots-sync-run",
+        {
+          method: "POST",
+          body: JSON.stringify({ admin_password: password, days_ahead: 14 }),
+        },
+      );
+      await loadWorkingHours(password);
+      setStatus(
+        `Open slots sync complete (${result.window_start} to ${result.window_end}): imported ${result.imported}, skipped ${result.skipped}.`,
+      );
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Open slots sync failed");
+    } finally {
+      setSyncingOpenSlots(false);
+    }
+  }
+
   if (!authenticated) {
     return (
       <main className="shell">
@@ -196,7 +221,12 @@ export default function AdminPage() {
         </section>
 
         <section className="card">
-          <h2>Working Hours</h2>
+          <div className="actions" style={{ justifyContent: "space-between", alignItems: "center" }}>
+            <h2 style={{ margin: 0 }}>Working Hours</h2>
+            <button onClick={runOpenSlotsSyncNow} disabled={syncingOpenSlots}>
+              {syncingOpenSlots ? "Syncing..." : "Sync Open Slots from Google"}
+            </button>
+          </div>
           <div className="grid grid-2">
             <div>
               <p className="label">Start date</p>
@@ -223,6 +253,7 @@ export default function AdminPage() {
             {hours.map((hour) => (
               <div key={hour.id || hour.date} className="card">
                 {hour.date}: {hour.start_time} - {hour.end_time}
+                {hour.source === "google_open_slots" ? " (Google Open slots)" : ""}
               </div>
             ))}
           </div>

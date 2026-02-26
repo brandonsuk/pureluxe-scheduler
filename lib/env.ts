@@ -26,6 +26,7 @@ export const env = {
   twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER || "",
   resendApiKey: process.env.RESEND_API_KEY || "",
   googleCalendarId: process.env.GOOGLE_CALENDAR_ID || "",
+  googleOpenSlotsCalendarId: process.env.GOOGLE_OPEN_SLOTS_CALENDAR_ID || "",
   googleServiceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "",
   googleServiceAccountPrivateKey: (process.env.GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY || "").replace(/\\n/g, "\n"),
   googleCalendarTimezone: process.env.GOOGLE_CALENDAR_TIMEZONE || "Europe/London",

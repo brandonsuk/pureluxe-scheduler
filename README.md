@@ -21,6 +21,7 @@ cp .env.example .env.local
 - If upgrading an existing database, also run:
 - `supabase/google_calendar_migration.sql`
 - `supabase/calendar_sync_migration.sql`
+- `supabase/open_slots_sync_migration.sql`
 4. Run dev server
 ```bash
 npm run dev
@@ -37,6 +38,8 @@ npm run dev
 - `GET /api/appointments`
 - `GET /api/calendar-sync-check` (cron, bearer auth)
 - `POST /api/calendar-sync-run` (admin-triggered manual sync)
+- `GET /api/open-slots-sync-check` (cron/manual bearer auth)
+- `POST /api/open-slots-sync-run` (admin-triggered manual sync)
 - `GET /api/auth`
 - `POST /api/working-hours`
 - `GET /api/working-hours`
@@ -48,3 +51,4 @@ npm run dev
 - Distance calculations are TomTom-only (`TOMTOM_API_KEY`, `DISTANCE_PROVIDER=tomtom`).
 - Google Calendar integration creates an event on booking and deletes it on cancellation when calendar env vars are set.
 - Calendar drift detection is detect-only: `/api/calendar-sync-check` updates `calendar_sync_state` to `in_sync`, `out_of_sync`, or `missing`.
+- Open-slot sync imports Google Calendar events titled `Open slots` into `working_hour_windows` (source `google_open_slots`) and these windows take precedence over `working_hours` in slot generation.

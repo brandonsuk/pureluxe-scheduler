@@ -26,6 +26,16 @@ export type WorkingHours = {
   is_available: boolean;
 };
 
+export type WorkingHourWindow = {
+  id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  is_available: boolean;
+  source: "manual" | "google_open_slots";
+  google_event_id: string | null;
+};
+
 export type CandidateSlot = {
   date: string;
   start_time: string;
