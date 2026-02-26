@@ -46,7 +46,7 @@ export async function sendCancellationNotifications(
 async function sendEmail(to: string, subject: string, text: string) {
   if (!resend) return;
   await resend.emails.send({
-    from: "PureLuxe <bookings@pureluxe.co.uk>",
+    from: "PureLuxe <contact@pureluxebathrooms.co.uk>",
     to,
     subject,
     text,
