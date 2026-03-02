@@ -25,7 +25,12 @@ type TomTomRouteResponse = {
 };
 
 const driveCache = new Map<string, { expiresAt: number; minutes: number }>();
+const inflightDriveRequests = new Map<string, Promise<number>>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
+const TOMTOM_MIN_INTERVAL_MS = 275;
+
+let lastTomTomRequestAt = 0;
+let tomTomQueue: Promise<void> = Promise.resolve();
 
 function cacheKey(origin: Location, destination: Location): string {
   return [
@@ -42,14 +47,25 @@ export async function getDriveMinutes(origin: Location, destination: Location): 
   const hit = driveCache.get(key);
   if (hit && hit.expiresAt > Date.now()) return hit.minutes;
 
+  const inflight = inflightDriveRequests.get(key);
+  if (inflight) return inflight;
+
   if (env.distanceProvider !== "tomtom" || !env.tomtomApiKey) {
     throw new Error("TomTom distance provider is required");
   }
 
-  const minutes = await getTomTomDriveMinutes(origin, destination);
+  const requestPromise = (async () => {
+    const minutes = await getTomTomDriveMinutes(origin, destination);
+    driveCache.set(key, { minutes, expiresAt: Date.now() + CACHE_TTL_MS });
+    return minutes;
+  })();
 
-  driveCache.set(key, { minutes, expiresAt: Date.now() + CACHE_TTL_MS });
-  return minutes;
+  inflightDriveRequests.set(key, requestPromise);
+  try {
+    return await requestPromise;
+  } finally {
+    inflightDriveRequests.delete(key);
+  }
 }
 
 async function getTomTomDriveMinutes(origin: Location, destination: Location): Promise<number> {
@@ -78,6 +94,8 @@ async function getTomTomDriveMinutes(origin: Location, destination: Location): P
 }
 
 async function fetchTomTomRouteMinutes(origin: Location, destination: Location): Promise<number> {
+  await waitForTomTomSlot();
+
   // TomTom routing expects "latitude,longitude"
   const coords = `${origin.lat},${origin.lng}:${destination.lat},${destination.lng}`;
   const url = new URL(`https://api.tomtom.com/routing/1/calculateRoute/${coords}/json`);
@@ -101,6 +119,25 @@ async function fetchTomTomRouteMinutes(origin: Location, destination: Location):
   const seconds = data.routes?.[0]?.summary?.travelTimeInSeconds;
   if (!seconds) throw new Error("Drive time unavailable for route (TomTom)");
   return Math.ceil(seconds / 60);
+}
+
+async function waitForTomTomSlot(): Promise<void> {
+  const previous = tomTomQueue;
+  let release!: () => void;
+  tomTomQueue = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+
+  await previous;
+
+  const now = Date.now();
+  const waitMs = Math.max(0, lastTomTomRequestAt + TOMTOM_MIN_INTERVAL_MS - now);
+  if (waitMs > 0) {
+    await new Promise((resolve) => setTimeout(resolve, waitMs));
+  }
+
+  lastTomTomRequestAt = Date.now();
+  release();
 }
 
 function nudgeCandidates(point: Location): Location[] {
