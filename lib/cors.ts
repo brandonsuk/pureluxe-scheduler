@@ -4,6 +4,7 @@ const explicitAllowedOrigins = new Set([
   "https://pureluxeleadmagnet1.lovable.app",
   "https://id-preview--3dec7234-57be-49c6-bcda-483a794727cb.lovable.app",
   "https://3dec7234-57be-49c6-bcda-483a794727cb.lovableproject.com",
+  "https://offer.pureluxebathrooms.co.uk",
   "http://localhost:3000",
   "http://localhost:3001",
 ]);
@@ -39,4 +40,3 @@ export function corsOptions(request: Request): NextResponse {
   const response = new NextResponse(null, { status: 204 });
   return applyCorsHeaders(request, response);
 }
-
