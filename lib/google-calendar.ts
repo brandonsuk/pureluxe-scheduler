@@ -56,17 +56,17 @@ export async function createCalendarEvent(input: CreateEventInput): Promise<stri
   if (!isCalendarConfigured()) return null;
 
   const descriptionLines = [
-    `Appointment ID: ${input.appointmentId}`,
-    `Client: ${input.clientName}`,
     `Phone: ${input.clientPhone}`,
+    `Client: ${input.clientName}`,
     `Email: ${input.clientEmail}`,
     `Address: ${input.address}`,
+    input.budget ? `Budget: ${input.budget}` : null,
     `Readiness: ${input.readinessLevel}`,
     `Duration: ${input.durationMins} mins`,
-  ];
-  if (input.renovationType) descriptionLines.push(`Renovation: ${input.renovationType}`);
-  if (input.wallType) descriptionLines.push(`Wall type: ${input.wallType}`);
-  if (input.budget) descriptionLines.push(`Budget: ${input.budget}`);
+    input.renovationType ? `Renovation: ${input.renovationType}` : null,
+    input.wallType ? `Wall type: ${input.wallType}` : null,
+    `Appointment ID: ${input.appointmentId}`,
+  ].filter((line): line is string => Boolean(line));
 
   const calendar = getCalendarClient();
   const response = await calendar.events.insert({
