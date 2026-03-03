@@ -12,6 +12,9 @@ type CreateEventInput = {
   address: string;
   readinessLevel: string;
   durationMins: number;
+  renovationType?: string;
+  wallType?: string;
+  budget?: string;
 };
 
 export type CalendarEventSnapshot =
@@ -52,20 +55,25 @@ function getCalendarClient() {
 export async function createCalendarEvent(input: CreateEventInput): Promise<string | null> {
   if (!isCalendarConfigured()) return null;
 
+  const descriptionLines = [
+    `Appointment ID: ${input.appointmentId}`,
+    `Client: ${input.clientName}`,
+    `Phone: ${input.clientPhone}`,
+    `Email: ${input.clientEmail}`,
+    `Address: ${input.address}`,
+    `Readiness: ${input.readinessLevel}`,
+    `Duration: ${input.durationMins} mins`,
+  ];
+  if (input.renovationType) descriptionLines.push(`Renovation: ${input.renovationType}`);
+  if (input.wallType) descriptionLines.push(`Wall type: ${input.wallType}`);
+  if (input.budget) descriptionLines.push(`Budget: ${input.budget}`);
+
   const calendar = getCalendarClient();
   const response = await calendar.events.insert({
     calendarId: env.googleCalendarId,
     requestBody: {
       summary: `${input.clientName} - Quote Visit`,
-      description: [
-        `Appointment ID: ${input.appointmentId}`,
-        `Client: ${input.clientName}`,
-        `Phone: ${input.clientPhone}`,
-        `Email: ${input.clientEmail}`,
-        `Address: ${input.address}`,
-        `Readiness: ${input.readinessLevel}`,
-        `Duration: ${input.durationMins} mins`,
-      ].join("\n"),
+      description: descriptionLines.join("\n"),
       location: input.address,
       start: {
         dateTime: `${input.date}T${input.startTime}:00`,

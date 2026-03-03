@@ -34,6 +34,9 @@ export const bookSchema = z.object({
   lat: z.coerce.number(),
   lng: z.coerce.number(),
   readiness_level: readinessSchema,
+  renovation_type: z.string().min(1).optional(),
+  wall_type: z.string().min(1).optional(),
+  budget: z.string().min(1).optional(),
 });
 
 export const preferredSlotsSchema = z.object({

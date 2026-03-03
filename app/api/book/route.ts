@@ -27,6 +27,17 @@ function normalizeBookPayload(input: Record<string, unknown>) {
     lat: input.lat,
     lng: input.lng,
     readiness_level: input.readiness_level ?? input.readinessLevel ?? input.readiness,
+    renovation_type:
+      input.renovation_type
+      ?? input.renovationType
+      ?? (typeof input.full_renovation === "boolean"
+        ? (input.full_renovation ? "full renovation" : "partial renovation")
+        : undefined)
+      ?? (typeof input.fullRenovation === "boolean"
+        ? (input.fullRenovation ? "full renovation" : "partial renovation")
+        : undefined),
+    wall_type: input.wall_type ?? input.wallType,
+    budget: input.budget,
   };
 }
 
@@ -88,6 +99,9 @@ export async function POST(request: Request) {
         address: payload.address,
         readinessLevel: payload.readiness_level,
         durationMins: payload.duration_mins,
+        renovationType: payload.renovation_type,
+        wallType: payload.wall_type,
+        budget: payload.budget,
       });
 
       if (googleEventId) {
