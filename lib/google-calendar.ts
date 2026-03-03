@@ -56,7 +56,7 @@ export async function createCalendarEvent(input: CreateEventInput): Promise<stri
   const response = await calendar.events.insert({
     calendarId: env.googleCalendarId,
     requestBody: {
-      summary: `PureLuxe Quote Visit - ${input.clientName}`,
+      summary: `${input.clientName} - Quote Visit`,
       description: [
         `Appointment ID: ${input.appointmentId}`,
         `Client: ${input.clientName}`,
