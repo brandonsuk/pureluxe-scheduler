@@ -26,6 +26,8 @@ export type CalendarEventSnapshot =
 export type CalendarListEvent = {
   id: string;
   summary: string;
+  description: string;
+  location: string;
   status: string;
   startDateTime: string | null;
   endDateTime: string | null;
@@ -160,6 +162,8 @@ export async function listCalendarEvents(params: {
     .map((event) => ({
       id: event.id!,
       summary: event.summary || "",
+      description: event.description || "",
+      location: event.location || "",
       status: event.status || "confirmed",
       startDateTime: event.start?.dateTime || null,
       endDateTime: event.end?.dateTime || null,

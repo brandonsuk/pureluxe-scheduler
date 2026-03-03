@@ -3,9 +3,16 @@ import { env } from "@/lib/env";
 import { getDriveMinutes } from "@/lib/distance";
 import { supabaseAdmin } from "@/lib/supabase";
 import { combineDateTime, minutesBetween, todayIsoDate } from "@/lib/time";
-import type { Appointment, CandidateSlot, Location, WorkingHourWindow, WorkingHours } from "@/lib/types";
+import type { Appointment, CalendarBlocker, CandidateSlot, Location, WorkingHourWindow, WorkingHours } from "@/lib/types";
 
-type AppointmentWithLoc = Pick<Appointment, "id" | "date" | "start_time" | "end_time" | "lat" | "lng">;
+type TimedBlockWithLoc = {
+  id: string;
+  date: string;
+  start_time: string;
+  end_time: string;
+  lat: number;
+  lng: number;
+};
 
 type SlotInput = {
   date: string;
@@ -52,8 +59,8 @@ export async function fetchWorkingDays(fromDate?: string, limit = 14): Promise<W
   }));
 }
 
-export async function fetchDayAppointments(date: string): Promise<AppointmentWithLoc[]> {
-  const { data, error } = await supabaseAdmin
+export async function fetchDayAppointments(date: string): Promise<TimedBlockWithLoc[]> {
+  const { data: appointments, error } = await supabaseAdmin
     .from("appointments")
     .select("id,date,start_time,end_time,lat,lng")
     .eq("date", date)
@@ -64,7 +71,40 @@ export async function fetchDayAppointments(date: string): Promise<AppointmentWit
     throw new Error(error.message);
   }
 
-  return (data || []) as AppointmentWithLoc[];
+  const { data: blockers, error: blockersError } = await supabaseAdmin
+    .from("calendar_blockers")
+    .select("id,date,start_time,end_time,lat,lng")
+    .eq("date", date)
+    .order("start_time", { ascending: true });
+
+  if (blockersError) {
+    throw new Error(blockersError.message);
+  }
+
+  const merged = [
+    ...(((appointments || []) as Pick<Appointment, "id" | "date" | "start_time" | "end_time" | "lat" | "lng">[]).map(
+      (row) => ({
+        id: row.id,
+        date: row.date,
+        start_time: row.start_time,
+        end_time: row.end_time,
+        lat: row.lat,
+        lng: row.lng,
+      }),
+    )),
+    ...(((blockers || []) as Pick<CalendarBlocker, "id" | "date" | "start_time" | "end_time" | "lat" | "lng">[]).map(
+      (row) => ({
+        id: row.id,
+        date: row.date,
+        start_time: row.start_time,
+        end_time: row.end_time,
+        lat: row.lat,
+        lng: row.lng,
+      }),
+    )),
+  ];
+
+  return merged.sort((a, b) => a.start_time.localeCompare(b.start_time));
 }
 
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
@@ -217,7 +257,7 @@ function pickDiverseSlots(
   return selected;
 }
 
-export async function validateCandidateSlot(input: SlotInput, existing: AppointmentWithLoc[]): Promise<ValidationResult> {
+export async function validateCandidateSlot(input: SlotInput, existing: TimedBlockWithLoc[]): Promise<ValidationResult> {
   const start = combineDateTime(input.date, input.start_time);
   const end = new Date(start.getTime() + input.duration_mins * 60 * 1000);
 

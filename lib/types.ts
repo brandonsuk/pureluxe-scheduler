@@ -36,6 +36,20 @@ export type WorkingHourWindow = {
   google_event_id: string | null;
 };
 
+export type CalendarBlocker = {
+  id: string;
+  google_event_id: string;
+  summary: string;
+  address: string;
+  lat: number;
+  lng: number;
+  date: string;
+  start_time: string;
+  end_time: string;
+  created_at: string;
+  updated_at: string;
+};
+
 export type CandidateSlot = {
   date: string;
   start_time: string;

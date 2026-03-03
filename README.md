@@ -22,6 +22,7 @@ cp .env.example .env.local
 - `supabase/google_calendar_migration.sql`
 - `supabase/calendar_sync_migration.sql`
 - `supabase/open_slots_sync_migration.sql`
+- `supabase/calendar_blockers_migration.sql`
 4. Run dev server
 ```bash
 npm run dev
@@ -55,6 +56,7 @@ npm run dev
 - Google Calendar integration creates an event on booking and deletes it on cancellation when calendar env vars are set.
 - Calendar drift detection is detect-only: `/api/calendar-sync-check` updates `calendar_sync_state` to `in_sync`, `out_of_sync`, or `missing`.
 - Open-slot sync imports Google Calendar events titled `Open slots` into `working_hour_windows` (source `google_open_slots`). Slot generation uses only these synced windows (no fallback to `working_hours`).
+- The same sync also imports non-`Open slots` timed Google Calendar events with a valid `location` into `calendar_blockers`, unless they already belong to a scheduler-created appointment. Slot generation treats these blockers like existing appointments for overlap and routing.
 - `POST /api/preferred-slots` supports optional `preferred_time` (`HH:mm`) so exact-time preference can influence ranking while drive efficiency remains dominant.
 - Twilio inbound SMS webhook supports `CA` command and cancels the sender's next upcoming confirmed appointment.
 - Resend inbound email webhook supports `CA` in reply body and cancels the sender's next upcoming confirmed appointment.
