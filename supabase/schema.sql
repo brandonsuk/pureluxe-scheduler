@@ -54,6 +54,7 @@ create table if not exists appointments (
   lat double precision not null,
   lng double precision not null,
   google_event_id text,
+  reminder_24h_sent_at timestamptz,
   calendar_last_start timestamptz,
   calendar_last_end timestamptz,
   calendar_last_status text,

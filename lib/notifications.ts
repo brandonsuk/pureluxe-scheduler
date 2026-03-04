@@ -144,3 +144,14 @@ export function reminderSchedulingStub() {
   // Intended for Vercel Cron or queue integration.
   return { status: "not_implemented" as const };
 }
+
+type ReminderPayload = Pick<BookingPayload, "clientPhone" | "date" | "startTime" | "address">;
+
+export async function sendReminder24hSms(payload: ReminderPayload) {
+  const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, at ${payload.address}.
+
+Thomas' number is 07710597590 if needed.
+
+Reply CA by SMS if you need to cancel.`;
+  await sendSms(payload.clientPhone, body);
+}

@@ -23,6 +23,7 @@ cp .env.example .env.local
 - `supabase/calendar_sync_migration.sql`
 - `supabase/open_slots_sync_migration.sql`
 - `supabase/calendar_blockers_migration.sql`
+- `supabase/appointment_reminders_migration.sql`
 4. Run dev server
 ```bash
 npm run dev
@@ -40,6 +41,7 @@ npm run dev
 - `POST /api/twilio/inbound-sms`
 - `POST /api/resend/inbound-email`
 - `GET /api/appointments`
+- `GET /api/reminder-check` (cron, bearer auth)
 - `GET /api/calendar-sync-check` (cron, bearer auth)
 - `POST /api/calendar-sync-run` (admin-triggered manual sync)
 - `GET /api/open-slots-sync-check` (cron/manual bearer auth)
@@ -51,7 +53,7 @@ npm run dev
 ## Notes
 
 - Route validation is implemented in `lib/scheduler.ts`.
-- 24h and 2h reminders are stubbed in `lib/notifications.ts` for cron/queue integration.
+- 24h SMS reminders are sent by `/api/reminder-check`, intended to run every 15 minutes under cron.
 - Distance calculations are TomTom-only (`TOMTOM_API_KEY`, `DISTANCE_PROVIDER=tomtom`).
 - Google Calendar integration creates an event on booking and deletes it on cancellation when calendar env vars are set.
 - `POST /api/book` accepts optional qualifying fields (`renovation_type`, `wall_type`, `budget`; plus `full_renovation` boolean aliases) and adds them to the Google Calendar event description when provided.
