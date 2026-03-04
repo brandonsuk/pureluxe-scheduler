@@ -12,6 +12,8 @@ export const OPTIONS = corsOptions;
 function normalizeBookPayload(input: Record<string, unknown>) {
   const dateRaw = input.date ?? input.bookingDate;
   const timeRaw = input.start_time ?? input.startTime;
+  const readinessRaw = input.readiness_level ?? input.readinessLevel ?? input.readiness ?? input.booking_readiness;
+  const fullRenovationRaw = input.full_renovation ?? input.fullRenovation;
 
   const date = typeof dateRaw === "string" ? dateRaw.slice(0, 10) : dateRaw;
   const start_time = typeof timeRaw === "string" ? timeRaw.slice(0, 5) : timeRaw;
@@ -26,15 +28,16 @@ function normalizeBookPayload(input: Record<string, unknown>) {
     address: input.address,
     lat: input.lat,
     lng: input.lng,
-    readiness_level: input.readiness_level ?? input.readinessLevel ?? input.readiness,
+    readiness_level: readinessRaw,
+    readiness_display: typeof readinessRaw === "string" ? readinessRaw : undefined,
     renovation_type:
       input.renovation_type
       ?? input.renovationType
-      ?? (typeof input.full_renovation === "boolean"
-        ? (input.full_renovation ? "full renovation" : "partial renovation")
+      ?? (typeof fullRenovationRaw === "string"
+        ? fullRenovationRaw
         : undefined)
-      ?? (typeof input.fullRenovation === "boolean"
-        ? (input.fullRenovation ? "full renovation" : "partial renovation")
+      ?? (typeof fullRenovationRaw === "boolean"
+        ? (fullRenovationRaw ? "full renovation" : "partial renovation")
         : undefined),
     wall_type: input.wall_type ?? input.wallType,
     budget: input.budget,
@@ -97,7 +100,7 @@ export async function POST(request: Request) {
         clientPhone: payload.client_phone,
         clientEmail: payload.client_email,
         address: payload.address,
-        readinessLevel: payload.readiness_level,
+        readinessLevel: payload.readiness_display || payload.readiness_level,
         durationMins: payload.duration_mins,
         renovationType: payload.renovation_type,
         wallType: payload.wall_type,

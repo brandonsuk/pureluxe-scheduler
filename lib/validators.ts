@@ -17,6 +17,9 @@ const readinessSchema = z.preprocess((value) => {
   if (normalized === "ready") return "ready";
   if (normalized === "partial") return "partial";
   if (normalized === "unsure") return "unsure";
+  if (normalized === "very-confident") return "ready";
+  if (normalized === "confident") return "partial";
+  if (normalized === "needs-guidance") return "unsure";
   if (normalized === "i know exactly what i want") return "ready";
   if (normalized === "i have some ideas but need guidance") return "partial";
   if (normalized === "i'm not sure yet, i need help deciding") return "unsure";
@@ -34,6 +37,7 @@ export const bookSchema = z.object({
   lat: z.coerce.number(),
   lng: z.coerce.number(),
   readiness_level: readinessSchema,
+  readiness_display: z.string().min(1).optional(),
   renovation_type: z.string().min(1).optional(),
   wall_type: z.string().min(1).optional(),
   budget: z.string().min(1).optional(),

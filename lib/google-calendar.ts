@@ -17,6 +17,42 @@ type CreateEventInput = {
   budget?: string;
 };
 
+function formatReadiness(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "very-confident" || normalized === "ready") return "Very confident";
+  if (normalized === "confident" || normalized === "partial") return "Confident";
+  if (normalized === "needs-guidance" || normalized === "unsure") return "Needs guidance";
+  return value;
+}
+
+function formatRenovationType(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "full" || normalized === "full renovation") return "Full renovation";
+  if (normalized === "partial" || normalized === "partial renovation") return "Partial renovation";
+  return value;
+}
+
+function formatWallType(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "wetwalls") return "Wetwalls";
+  if (normalized === "tiling") return "Tiling";
+  if (normalized === "undecided") return "Undecided";
+  if (normalized === "tiling-but-open-to-wetwalls" || normalized === "wetwalls-converted") {
+    return "Tiling but open to wetwalls";
+  }
+  return value;
+}
+
+function formatBudget(value: string): string {
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "less-than-3500") return "Less than GBP 3,500";
+  if (normalized === "3500-4500") return "GBP 3,500 - GBP 4,500";
+  if (normalized === "4500-6500") return "GBP 4,500 - GBP 6,500";
+  if (normalized === "6500+") return "GBP 6,500+";
+  if (normalized === "not-sure") return "Not sure";
+  return value;
+}
+
 export type CalendarEventSnapshot =
   | {
       exists: true;
@@ -60,11 +96,11 @@ export async function createCalendarEvent(input: CreateEventInput): Promise<stri
     `Client: ${input.clientName}`,
     `Email: ${input.clientEmail}`,
     `Address: ${input.address}`,
-    input.budget ? `Budget: ${input.budget}` : null,
-    `Readiness: ${input.readinessLevel}`,
+    input.budget ? `Budget: ${formatBudget(input.budget)}` : null,
+    `Readiness: ${formatReadiness(input.readinessLevel)}`,
     `Duration: ${input.durationMins} mins`,
-    input.renovationType ? `Renovation: ${input.renovationType}` : null,
-    input.wallType ? `Wall type: ${input.wallType}` : null,
+    input.renovationType ? `Renovation: ${formatRenovationType(input.renovationType)}` : null,
+    input.wallType ? `Wall type: ${formatWallType(input.wallType)}` : null,
     `Appointment ID: ${input.appointmentId}`,
   ].filter((line): line is string => Boolean(line));
 
