@@ -111,11 +111,13 @@ export async function sendCancellationNotifications(
   options?: { sendSms?: boolean },
 ) {
   const text = `Your PureLuxe appointment on ${payload.date} at ${payload.startTime} has been cancelled.`;
+  const adminText = `Cancellation: ${payload.date} ${payload.startTime}. Lead email: ${payload.clientEmail}. Lead phone: ${payload.clientPhone}.`;
   const sendSmsEnabled = options?.sendSms ?? true;
   await Promise.allSettled([
     sendEmail(payload.clientEmail, "Your PureLuxe appointment was cancelled", text, {
       html: cancellationLeadHtml(payload.date, payload.startTime),
     }),
+    sendEmail(env.adminAlertEmail, "PureLuxe booking cancelled", adminText),
     ...(sendSmsEnabled ? [sendSms(payload.clientPhone, text)] : []),
   ]);
 }
