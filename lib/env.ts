@@ -33,6 +33,7 @@ export const env = {
   googleCalendarTimezone: process.env.GOOGLE_CALENDAR_TIMEZONE || "Europe/London",
   cronSecret: process.env.CRON_SECRET || "",
   adminPassword: process.env.ADMIN_PASSWORD || "",
+  adminAlertEmail: process.env.ADMIN_ALERT_EMAIL || "contact@pureluxebathrooms.co.uk",
   homeBaseLat: Number(process.env.HOME_BASE_LAT || 55.7956),
   homeBaseLng: Number(process.env.HOME_BASE_LNG || -3.7939),
   maxDriveMins: Number(process.env.MAX_DRIVE_MINS || 40),

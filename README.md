@@ -63,3 +63,4 @@ npm run dev
 - `POST /api/preferred-slots` supports optional `preferred_time` (`HH:mm`) so exact-time preference can influence ranking while drive efficiency remains dominant.
 - Twilio inbound SMS webhook supports `CA` command and cancels the sender's next upcoming confirmed appointment.
 - Resend inbound email webhook supports `CA` in reply body and cancels the sender's next upcoming confirmed appointment.
+- Every cancellation sends an admin alert email to `ADMIN_ALERT_EMAIL` (defaults to `contact@pureluxebathrooms.co.uk`).
