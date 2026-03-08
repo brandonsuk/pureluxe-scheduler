@@ -1,16 +1,24 @@
 import twilio from "twilio";
 import { env } from "@/lib/env";
-import { cancelCalendarEvent, cancelCalendarEventByAppointmentId } from "@/lib/google-calendar";
+import { cancelCalendarEvent, cancelCalendarEventByAppointmentId, createCalendarEvent } from "@/lib/google-calendar";
 import { sendCancellationNotifications } from "@/lib/notifications";
+import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
-import { todayIsoDate } from "@/lib/time";
+import { addMins, todayIsoDate } from "@/lib/time";
 
 type AppointmentRow = {
   id: string;
   date: string;
   start_time: string;
+  end_time?: string;
+  duration_mins?: number;
+  client_name?: string;
   client_email: string;
   client_phone: string;
+  address?: string;
+  lat?: number;
+  lng?: number;
+  readiness_level?: string;
   google_event_id: string | null;
 };
 
@@ -62,6 +70,10 @@ function commandIsCancel(body: string): boolean {
   return body.trim().toUpperCase() === "CA";
 }
 
+function commandIsUndo(body: string): boolean {
+  return body.trim().toUpperCase() === "UNDO";
+}
+
 function possibleRequestUrls(request: Request): string[] {
   const direct = request.url;
   const host = request.headers.get("x-forwarded-host") || request.headers.get("host");
@@ -92,8 +104,91 @@ export async function POST(request: Request) {
   const from = payload.From || "";
   const body = payload.Body || "";
 
+  if (commandIsUndo(body)) {
+    const numbers = phoneCandidates(from);
+    const today = todayIsoDate();
+
+    const { data: cancelledAppointments, error: cancelledLookupError } = await supabaseAdmin
+      .from("appointments")
+      .select("id,date,start_time,duration_mins,client_name,client_email,client_phone,address,lat,lng,readiness_level,google_event_id")
+      .eq("status", "cancelled")
+      .gte("date", today)
+      .in("client_phone", numbers);
+
+    if (cancelledLookupError) {
+      // eslint-disable-next-line no-console
+      console.error("inbound_sms_undo_lookup_failed", cancelledLookupError);
+      return xmlResponse("We couldn't process that right now. Please call us.", 500);
+    }
+
+    const candidateList = ((cancelledAppointments || []) as AppointmentRow[]).sort((a, b) =>
+      upcomingSortKey(a).localeCompare(upcomingSortKey(b)),
+    );
+    const toRestore = candidateList[0];
+
+    if (!toRestore) {
+      return xmlResponse("No recently cancelled upcoming booking found for this number.");
+    }
+
+    if (
+      typeof toRestore.duration_mins !== "number"
+      || typeof toRestore.lat !== "number"
+      || typeof toRestore.lng !== "number"
+    ) {
+      return xmlResponse("We couldn't restore that booking automatically. Please call us to rebook.");
+    }
+
+    const existing = await fetchDayAppointments(toRestore.date);
+    const availability = await validateCandidateSlot({
+      date: toRestore.date,
+      start_time: toRestore.start_time,
+      duration_mins: toRestore.duration_mins,
+      location: { lat: toRestore.lat, lng: toRestore.lng },
+    }, existing);
+
+    if (!availability.valid) {
+      return xmlResponse("That slot is no longer available. Please reply to arrange a new time.");
+    }
+
+    const endTime = addMins(toRestore.start_time, toRestore.duration_mins);
+    let googleEventId: string | null = null;
+    try {
+      googleEventId = await createCalendarEvent({
+        appointmentId: toRestore.id,
+        date: toRestore.date,
+        startTime: toRestore.start_time.slice(0, 5),
+        endTime,
+        clientName: toRestore.client_name || "Lead",
+        clientPhone: toRestore.client_phone,
+        clientEmail: toRestore.client_email,
+        address: toRestore.address || "",
+        readinessLevel: toRestore.readiness_level || "unsure",
+        durationMins: toRestore.duration_mins,
+      });
+    } catch (calendarError) {
+      // eslint-disable-next-line no-console
+      console.error("inbound_sms_undo_calendar_create_failed", calendarError);
+    }
+
+    const { error: restoreError } = await supabaseAdmin
+      .from("appointments")
+      .update({
+        status: "confirmed",
+        google_event_id: googleEventId,
+      })
+      .eq("id", toRestore.id);
+
+    if (restoreError) {
+      // eslint-disable-next-line no-console
+      console.error("inbound_sms_undo_restore_failed", restoreError);
+      return xmlResponse("We couldn't restore that booking right now. Please call us.", 500);
+    }
+
+    return xmlResponse(`Your appointment on ${toRestore.date} at ${toRestore.start_time.slice(0, 5)} is restored.`);
+  }
+
   if (!commandIsCancel(body)) {
-    return xmlResponse("Reply CA to cancel your next upcoming appointment.");
+    return xmlResponse("Reply CA to cancel or UNDO to restore your next upcoming appointment.");
   }
 
   const numbers = phoneCandidates(from);
