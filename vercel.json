@@ -9,6 +9,10 @@
       "schedule": "*/15 * * * *"
     },
     {
+      "path": "/api/abandoned-lead-check",
+      "schedule": "*/15 * * * *"
+    },
+    {
       "path": "/api/open-slots-sync-check",
       "schedule": "0 */6 * * *"
     }

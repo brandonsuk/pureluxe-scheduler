@@ -148,6 +148,11 @@ export function reminderSchedulingStub() {
 }
 
 type ReminderPayload = Pick<BookingPayload, "clientPhone" | "date" | "startTime" | "address">;
+type AbandonedLeadPayload = {
+  clientName: string;
+  clientPhone: string;
+  resumeLink: string;
+};
 
 export async function sendReminder24hSms(payload: ReminderPayload) {
   const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, at ${payload.address}.
@@ -155,5 +160,10 @@ export async function sendReminder24hSms(payload: ReminderPayload) {
 Thomas' number is 07710597590 if needed.
 
 Reply CA by SMS if you need to cancel.`;
+  await sendSms(payload.clientPhone, body);
+}
+
+export async function sendAbandonedLeadSms(payload: AbandonedLeadPayload) {
+  const body = `Hi ${payload.clientName}, you were very close to booking your free PureLuxe quote visit. Finish your booking here: ${payload.resumeLink}`;
   await sendSms(payload.clientPhone, body);
 }

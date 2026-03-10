@@ -24,6 +24,7 @@ cp .env.example .env.local
 - `supabase/open_slots_sync_migration.sql`
 - `supabase/calendar_blockers_migration.sql`
 - `supabase/appointment_reminders_migration.sql`
+- `supabase/abandoned_followups_migration.sql`
 4. Run dev server
 ```bash
 npm run dev
@@ -42,6 +43,7 @@ npm run dev
 - `POST /api/resend/inbound-email`
 - `GET /api/appointments`
 - `GET /api/reminder-check` (cron, bearer auth)
+- `GET /api/abandoned-lead-check` (cron, bearer auth)
 - `GET /api/calendar-sync-check` (cron, bearer auth)
 - `POST /api/calendar-sync-run` (admin-triggered manual sync)
 - `GET /api/open-slots-sync-check` (cron/manual bearer auth)
@@ -54,6 +56,7 @@ npm run dev
 
 - Route validation is implemented in `lib/scheduler.ts`.
 - 24h SMS reminders are sent by `/api/reminder-check`, intended to run every 15 minutes under cron.
+- Abandoned-funnel SMS follow-up is sent by `/api/abandoned-lead-check`, intended to run every 15 minutes under cron. It targets leads inactive for 20+ minutes, starting from funnel step 1, unless they have already booked, were disqualified, have already been reminded, or have an invalid phone.
 - Distance calculations are TomTom-only (`TOMTOM_API_KEY`, `DISTANCE_PROVIDER=tomtom`).
 - Google Calendar integration creates an event on booking and deletes it on cancellation when calendar env vars are set.
 - `POST /api/book` accepts optional qualifying fields (`renovation_type`, `wall_type`, `budget`; plus `full_renovation` boolean aliases) and adds them to the Google Calendar event description when provided.
@@ -64,3 +67,4 @@ npm run dev
 - Twilio inbound SMS webhook supports `CA` (cancel) and `UNDO` (restore) for the sender's next upcoming appointment.
 - Resend inbound email webhook supports `CA` in reply body and cancels the sender's next upcoming confirmed appointment.
 - Every cancellation sends an admin alert email to `ADMIN_ALERT_EMAIL` (defaults to `contact@pureluxebathrooms.co.uk`).
+- Resume links in abandoned-funnel SMS use `FUNNEL_BASE_URL` and the frontend `/resume?session=<lead_session_id>` route.
