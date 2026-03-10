@@ -4,20 +4,18 @@ import { sendAbandonedLeadSms } from "@/lib/notifications";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDateInTimeZone } from "@/lib/time";
 
-type FormSubmissionRow = Record<string, unknown> & {
-  id?: string;
+type LeadProgressRow = Record<string, unknown> & {
+  submission_id?: string;
   lead_session_id?: string;
-  name?: string;
-  email?: string;
-  phone?: string;
+  client_name?: string;
+  client_email?: string;
+  client_phone?: string;
   postcode?: string;
-  location?: string;
-  wall_type?: string;
   current_step?: number;
-  completed?: boolean;
   created_at?: string;
   updated_at?: string;
-  disqualified?: boolean;
+  last_activity_at?: string;
+  is_disqualified?: boolean;
 };
 
 type AbandonedTrackerRow = {
@@ -45,23 +43,23 @@ function hasValidPhone(phone: string): boolean {
   return digitsOnly.length >= 10;
 }
 
-function hasMinimumLeadData(row: FormSubmissionRow): boolean {
-  return Boolean(row.name && row.phone && row.email && row.postcode);
+function hasMinimumLeadData(row: LeadProgressRow): boolean {
+  return Boolean(row.client_name && row.client_phone && row.client_email && row.postcode);
 }
 
-function isDisqualified(row: FormSubmissionRow): boolean {
-  if (row.disqualified === true) return true;
-  return row.wall_type === "tiling";
+function isDisqualified(row: LeadProgressRow): boolean {
+  return row.is_disqualified === true;
 }
 
-function rowLastActivityIso(row: FormSubmissionRow): string | null {
+function rowLastActivityIso(row: LeadProgressRow): string | null {
+  const lastActivity = typeof row.last_activity_at === "string" ? row.last_activity_at : null;
   const updated = typeof row.updated_at === "string" ? row.updated_at : null;
   const created = typeof row.created_at === "string" ? row.created_at : null;
-  return updated || created;
+  return lastActivity || updated || created;
 }
 
-function latestBySession(rows: FormSubmissionRow[]): FormSubmissionRow[] {
-  const bySession = new Map<string, FormSubmissionRow>();
+function latestBySession(rows: LeadProgressRow[]): LeadProgressRow[] {
+  const bySession = new Map<string, LeadProgressRow>();
 
   for (const row of rows) {
     const sessionId = typeof row.lead_session_id === "string" ? row.lead_session_id : "";
@@ -144,16 +142,15 @@ export async function runAbandonedLeadCheck(): Promise<{
   const thresholdDate = subMinutes(new Date(), 20);
 
   const { data, error } = await supabaseAdmin
-    .from("form_submissions")
+    .from("abandoned_followups")
     .select("*")
-    .eq("completed", false)
-    .order("created_at", { ascending: false })
+    .order("updated_at", { ascending: false })
     .limit(500);
 
   if (error) throw new Error(error.message);
 
   const latestRows = latestBySession(
-    ((data || []) as FormSubmissionRow[])
+    ((data || []) as LeadProgressRow[])
       .filter(hasMinimumLeadData)
       .filter((row) => {
         const lastActivity = rowLastActivityIso(row);
@@ -175,9 +172,9 @@ export async function runAbandonedLeadCheck(): Promise<{
 
   for (const row of latestRows) {
     const leadSessionId = String(row.lead_session_id || "");
-    const clientName = String(row.name || "").trim();
-    const clientPhone = String(row.phone || "").trim();
-    const clientEmail = String(row.email || "").trim();
+    const clientName = String(row.client_name || "").trim();
+    const clientPhone = String(row.client_phone || "").trim();
+    const clientEmail = String(row.client_email || "").trim();
     const postcode = String(row.postcode || "").trim();
     const currentStep = Number(row.current_step || 1);
     const lastActivityAt = rowLastActivityIso(row);
@@ -188,7 +185,7 @@ export async function runAbandonedLeadCheck(): Promise<{
       suppressedInvalidPhone += 1;
       await upsertTracker({
         lead_session_id: leadSessionId,
-        submission_id: typeof row.id === "string" ? row.id : null,
+        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
         client_name: clientName,
         client_phone: clientPhone,
         client_email: clientEmail,
@@ -206,7 +203,7 @@ export async function runAbandonedLeadCheck(): Promise<{
       suppressedAlreadySent += 1;
       await upsertTracker({
         lead_session_id: leadSessionId,
-        submission_id: typeof row.id === "string" ? row.id : null,
+        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
         client_name: clientName,
         client_phone: clientPhone,
         client_email: clientEmail,
@@ -224,7 +221,7 @@ export async function runAbandonedLeadCheck(): Promise<{
       suppressedDisqualified += 1;
       await upsertTracker({
         lead_session_id: leadSessionId,
-        submission_id: typeof row.id === "string" ? row.id : null,
+        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
         client_name: clientName,
         client_phone: clientPhone,
         client_email: clientEmail,
@@ -264,7 +261,7 @@ export async function runAbandonedLeadCheck(): Promise<{
     const sentAt = new Date().toISOString();
     await upsertTracker({
       lead_session_id: leadSessionId,
-      submission_id: typeof row.id === "string" ? row.id : null,
+      submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
       client_name: clientName,
       client_phone: clientPhone,
       client_email: clientEmail,

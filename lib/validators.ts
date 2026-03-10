@@ -77,3 +77,15 @@ export const workingHoursSchema = z.object({
   end_time: z.string(),
   is_available: z.boolean().default(true),
 });
+
+export const leadProgressSchema = z.object({
+  lead_session_id: z.string().min(1),
+  name: z.string().min(1),
+  phone: z.string().min(7),
+  email: z.string().email(),
+  postcode: z.string().min(2),
+  current_step: z.coerce.number().int().min(1),
+  disqualified: z.boolean().optional(),
+  wall_type: z.string().optional(),
+  address: z.string().optional(),
+});

@@ -39,6 +39,7 @@ npm run dev
 - `POST /api/slot-help-request`
 - `POST /api/book`
 - `POST /api/cancel`
+- `POST /api/lead-progress`
 - `POST /api/twilio/inbound-sms`
 - `POST /api/resend/inbound-email`
 - `GET /api/appointments`
@@ -56,7 +57,7 @@ npm run dev
 
 - Route validation is implemented in `lib/scheduler.ts`.
 - 24h SMS reminders are sent by `/api/reminder-check`, intended to run every 15 minutes under cron.
-- Abandoned-funnel SMS follow-up is sent by `/api/abandoned-lead-check`, intended to run every 15 minutes under cron. It targets leads inactive for 20+ minutes, starting from funnel step 1, unless they have already booked, were disqualified, have already been reminded, or have an invalid phone.
+- Abandoned-funnel SMS follow-up is sent by `/api/abandoned-lead-check`, intended to run every 15 minutes under cron. Lovable should `POST /api/lead-progress` at key funnel steps; the cron texts leads inactive for 20+ minutes, starting from funnel step 1, unless they have already booked, were disqualified, have already been reminded, or have an invalid phone.
 - Distance calculations are TomTom-only (`TOMTOM_API_KEY`, `DISTANCE_PROVIDER=tomtom`).
 - Google Calendar integration creates an event on booking and deletes it on cancellation when calendar env vars are set.
 - `POST /api/book` accepts optional qualifying fields (`renovation_type`, `wall_type`, `budget`; plus `full_renovation` boolean aliases) and adds them to the Google Calendar event description when provided.
