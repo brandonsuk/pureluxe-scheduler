@@ -111,6 +111,60 @@ function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
   return aStart < bEnd && aEnd > bStart;
 }
 
+function toRadians(value: number): number {
+  return (value * Math.PI) / 180;
+}
+
+function straightLineKm(a: Location, b: Location): number {
+  const earthRadiusKm = 6371;
+  const dLat = toRadians(b.lat - a.lat);
+  const dLng = toRadians(b.lng - a.lng);
+  const lat1 = toRadians(a.lat);
+  const lat2 = toRadians(b.lat);
+  const hav =
+    Math.sin(dLat / 2) ** 2
+    + Math.cos(lat1) * Math.cos(lat2) * Math.sin(dLng / 2) ** 2;
+  return 2 * earthRadiusKm * Math.asin(Math.sqrt(hav));
+}
+
+function centroid(locations: Location[]): Location {
+  const total = locations.reduce(
+    (acc, loc) => ({ lat: acc.lat + loc.lat, lng: acc.lng + loc.lng }),
+    { lat: 0, lng: 0 },
+  );
+  return {
+    lat: total.lat / locations.length,
+    lng: total.lng / locations.length,
+  };
+}
+
+function clusterPenalty(location: Location, existing: TimedBlockWithLoc[]): number {
+  if (!existing.length) return 0;
+
+  const points = existing.map((appt) => ({ lat: appt.lat, lng: appt.lng }));
+  const center = centroid(points);
+  const clusterRadiusKm = Math.max(...points.map((point) => straightLineKm(point, center)), 0);
+  const candidateDistanceKm = straightLineKm(location, center);
+
+  // Allow a little spread around the current cluster, but penalize obvious pull-away bookings.
+  const freeRadiusKm = Math.max(8, clusterRadiusKm + 5);
+  return Math.max(0, candidateDistanceKm - freeRadiusKm) * 6;
+}
+
+function sandwichDetourPenalty(location: Location, prev: TimedBlockWithLoc | undefined, next: TimedBlockWithLoc | undefined): number {
+  if (!prev || !next) return 0;
+
+  const prevLoc = { lat: prev.lat, lng: prev.lng };
+  const nextLoc = { lat: next.lat, lng: next.lng };
+  const prevNextKm = straightLineKm(prevLoc, nextLoc);
+  const candidateBridgeKm = straightLineKm(prevLoc, location) + straightLineKm(location, nextLoc);
+  const detourKm = Math.max(0, candidateBridgeKm - prevNextKm);
+
+  // Heavily punish out-and-back middle bookings when the existing neighbors are already close.
+  const multiplier = prevNextKm <= 15 ? 5 : 3;
+  return detourKm * multiplier;
+}
+
 function generateCandidateSlots(day: WorkingHours, durationMins: number): CandidateSlot[] {
   const slots: CandidateSlot[] = [];
   const windowStart = combineDateTime(day.date, day.start_time);
@@ -300,11 +354,22 @@ export async function validateCandidateSlot(input: SlotInput, existing: TimedBlo
   const prevLegFits = prev ? prevDrive <= availableFromPrev : true;
   const nextLegFits = nextDrive <= availableToNext;
 
+  if (prevDrive > env.maxDriveMins || nextDrive > env.maxDriveMins) {
+    return { valid: false, reason: "max_drive" };
+  }
+
   if (!prevLegFits || !nextLegFits) {
     return { valid: false, reason: "drive_window" };
   }
 
-  return { valid: true, score: prevDrive + nextDrive - directPrevToNext };
+  const extraDriveScore = prevDrive + nextDrive - directPrevToNext;
+  const clusterShapePenalty = clusterPenalty(input.location, existing);
+  const detourPenalty = sandwichDetourPenalty(input.location, prev, next);
+
+  return {
+    valid: true,
+    score: extraDriveScore + clusterShapePenalty + detourPenalty,
+  };
 }
 
 export async function findBestSlots(
