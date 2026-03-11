@@ -140,7 +140,7 @@ export async function runAbandonedLeadCheck(): Promise<{
   suppressed_invalid_phone: number;
   send_failed: number;
 }> {
-  const thresholdDate = subMinutes(new Date(), 20);
+  const thresholdDate = subMinutes(new Date(), 1);
 
   const { data, error } = await supabaseAdmin
     .from("abandoned_followups")
