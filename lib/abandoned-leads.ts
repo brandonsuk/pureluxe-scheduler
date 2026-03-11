@@ -138,6 +138,7 @@ export async function runAbandonedLeadCheck(): Promise<{
   suppressed_disqualified: number;
   suppressed_already_sent: number;
   suppressed_invalid_phone: number;
+  send_failed: number;
 }> {
   const thresholdDate = subMinutes(new Date(), 20);
 
@@ -169,6 +170,7 @@ export async function runAbandonedLeadCheck(): Promise<{
   let suppressedDisqualified = 0;
   let suppressedAlreadySent = 0;
   let suppressedInvalidPhone = 0;
+  let sendFailed = 0;
 
   for (const row of latestRows) {
     const leadSessionId = String(row.lead_session_id || "");
@@ -252,27 +254,43 @@ export async function runAbandonedLeadCheck(): Promise<{
     }
 
     eligible += 1;
-    await sendAbandonedLeadSms({
-      clientName,
-      clientPhone,
-      resumeLink: buildResumeLink(leadSessionId),
-    });
+    try {
+      await sendAbandonedLeadSms({
+        clientName,
+        clientPhone,
+        resumeLink: buildResumeLink(leadSessionId),
+      });
 
-    const sentAt = new Date().toISOString();
-    await upsertTracker({
-      lead_session_id: leadSessionId,
-      submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
-      client_name: clientName,
-      client_phone: clientPhone,
-      client_email: clientEmail,
-      postcode,
-      current_step: currentStep,
-      last_activity_at: lastActivityAt,
-      is_disqualified: false,
-      reminder_sent_at: sentAt,
-      suppressed_reason: null,
-    });
-    sent += 1;
+      const sentAt = new Date().toISOString();
+      await upsertTracker({
+        lead_session_id: leadSessionId,
+        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
+        client_name: clientName,
+        client_phone: clientPhone,
+        client_email: clientEmail,
+        postcode,
+        current_step: currentStep,
+        last_activity_at: lastActivityAt,
+        is_disqualified: false,
+        reminder_sent_at: sentAt,
+        suppressed_reason: null,
+      });
+      sent += 1;
+    } catch (error) {
+      sendFailed += 1;
+      await upsertTracker({
+        lead_session_id: leadSessionId,
+        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
+        client_name: clientName,
+        client_phone: clientPhone,
+        client_email: clientEmail,
+        postcode,
+        current_step: currentStep,
+        last_activity_at: lastActivityAt,
+        is_disqualified: false,
+        suppressed_reason: error instanceof Error ? `send_failed:${error.message}` : "send_failed",
+      });
+    }
   }
 
   return {
@@ -283,5 +301,6 @@ export async function runAbandonedLeadCheck(): Promise<{
     suppressed_disqualified: suppressedDisqualified,
     suppressed_already_sent: suppressedAlreadySent,
     suppressed_invalid_phone: suppressedInvalidPhone,
+    send_failed: sendFailed,
   };
 }
