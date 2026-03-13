@@ -151,28 +151,32 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
       continue;
     }
 
-    const location = event.location.trim();
-    if (!location) {
-      skippedBlockers += 1;
-      continue;
-    }
+    const location = event.location?.trim() || "";
+    let coords: { lat: number; lng: number };
 
-    let coords = geocodeCache.get(location);
-    if (!coords) {
-      try {
-        const geo = await geocodeAddress(location);
-        coords = { lat: geo.lat, lng: geo.lng };
-        geocodeCache.set(location, coords);
-      } catch {
-        skippedBlockers += 1;
-        continue;
+    if (location) {
+      let cached = geocodeCache.get(location);
+      if (!cached) {
+        try {
+          const geo = await geocodeAddress(location);
+          cached = { lat: geo.lat, lng: geo.lng };
+          geocodeCache.set(location, cached);
+        } catch {
+          // Geocoding failed — fall back to home base so the time block is still respected
+          cached = { lat: env.homeBaseLat, lng: env.homeBaseLng };
+          geocodeCache.set(location, cached);
+        }
       }
+      coords = cached;
+    } else {
+      // No location on the event — use home base so the time is still blocked
+      coords = { lat: env.homeBaseLat, lng: env.homeBaseLng };
     }
 
     blockerRows.push({
       google_event_id: event.id,
       summary: event.summary || "Calendar blocker",
-      address: location,
+      address: location || "Unknown",
       lat: coords.lat,
       lng: coords.lng,
       date: start.date,
