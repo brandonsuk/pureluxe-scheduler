@@ -21,6 +21,7 @@ type LeadProgressRow = Record<string, unknown> & {
 type AbandonedTrackerRow = {
   lead_session_id: string;
   reminder_sent_at: string | null;
+  suppressed_reason: string | null;
 };
 
 function normalizePhoneForMatch(phone: string): string {
@@ -84,7 +85,7 @@ async function loadExistingTrackers(sessionIds: string[]): Promise<Map<string, A
 
   const { data, error } = await supabaseAdmin
     .from("abandoned_followups")
-    .select("lead_session_id,reminder_sent_at")
+    .select("lead_session_id,reminder_sent_at,suppressed_reason")
     .in("lead_session_id", sessionIds);
 
   if (error) throw new Error(error.message);
@@ -201,6 +202,11 @@ export async function runAbandonedLeadCheck(): Promise<{
     }
 
     const tracker = trackers.get(leadSessionId);
+    if (tracker?.suppressed_reason?.startsWith("send_failed")) {
+      sendFailed += 1;
+      continue;
+    }
+
     if (tracker?.reminder_sent_at) {
       suppressedAlreadySent += 1;
       await upsertTracker({
