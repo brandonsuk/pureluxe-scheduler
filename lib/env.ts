@@ -40,4 +40,6 @@ export const env = {
   maxDriveMins: Number(process.env.MAX_DRIVE_MINS || 40),
   bufferMins: Number(process.env.BUFFER_MINS || 0),
   appUrl: process.env.NEXT_PUBLIC_API_URL || "",
+  airtableApiKey: process.env.AIRTABLE_API_KEY || "",
+  airtableBaseId: process.env.AIRTABLE_BASE_ID || "appZDUQjR3bZB3tNs",
 };

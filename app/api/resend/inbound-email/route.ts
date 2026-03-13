@@ -5,6 +5,7 @@ import { cancelCalendarEvent, cancelCalendarEventByAppointmentId } from "@/lib/g
 import { sendCancellationNotifications } from "@/lib/notifications";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDate } from "@/lib/time";
+import { markAirtableAppointmentCancelled } from "@/lib/airtable-sync";
 
 type AppointmentRow = {
   id: string;
@@ -84,6 +85,12 @@ export async function POST(request: Request) {
     .update({ status: "cancelled" })
     .eq("id", appointment.id);
   if (cancelError) return jsonError("Cancel failed", request, 500, { db_error: cancelError.message });
+
+  // Sync cancellation back to Airtable CRM (fire-and-forget)
+  markAirtableAppointmentCancelled(appointment.client_phone, appointment.client_email).catch((e) => {
+    // eslint-disable-next-line no-console
+    console.error("email_cancel_airtable_sync_failed", e);
+  });
 
   try {
     if (appointment.google_event_id) {

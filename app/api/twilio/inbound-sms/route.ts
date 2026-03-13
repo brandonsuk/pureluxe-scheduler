@@ -5,6 +5,7 @@ import { sendCancellationNotifications } from "@/lib/notifications";
 import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
 import { addMins, todayIsoDate } from "@/lib/time";
+import { markAirtableAppointmentCancelled } from "@/lib/airtable-sync";
 
 type AppointmentRow = {
   id: string;
@@ -226,6 +227,12 @@ export async function POST(request: Request) {
     console.error("inbound_sms_cancel_failed", cancelError);
     return xmlResponse("We couldn't cancel that booking right now. Please call us.", 500);
   }
+
+  // Sync cancellation back to Airtable CRM (fire-and-forget)
+  markAirtableAppointmentCancelled(nextAppt.client_phone, nextAppt.client_email).catch((e) => {
+    // eslint-disable-next-line no-console
+    console.error("inbound_sms_airtable_sync_failed", e);
+  });
 
   try {
     if (nextAppt.google_event_id) {
