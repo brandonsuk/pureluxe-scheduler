@@ -7,6 +7,7 @@ const explicitAllowedOrigins = new Set([
   "https://offer.pureluxebathrooms.co.uk",
   // CRM (pureluxe-crm on Vercel)
   "https://project-c6kq2.vercel.app",
+  "https://pureluxe-crm.vercel.app",
   "http://localhost:3000",
   "http://localhost:3001",
 ]);
