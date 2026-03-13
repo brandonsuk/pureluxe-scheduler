@@ -5,6 +5,8 @@ const explicitAllowedOrigins = new Set([
   "https://id-preview--3dec7234-57be-49c6-bcda-483a794727cb.lovable.app",
   "https://3dec7234-57be-49c6-bcda-483a794727cb.lovableproject.com",
   "https://offer.pureluxebathrooms.co.uk",
+  // CRM (pureluxe-crm on Vercel)
+  "https://project-c6kq2.vercel.app",
   "http://localhost:3000",
   "http://localhost:3001",
 ]);
@@ -20,6 +22,8 @@ function isAllowedOrigin(origin: string): boolean {
   if (explicitAllowedOrigins.has(origin)) return true;
   if (/^https:\/\/[a-z0-9-]+\.lovable\.app$/i.test(origin)) return true;
   if (/^https:\/\/[a-z0-9-]+\.lovableproject\.com$/i.test(origin)) return true;
+  // Allow all Vercel preview deployments for the brandonsuks team (covers CRM previews)
+  if (/^https:\/\/[a-z0-9-]+-brandonsuks-projects\.vercel\.app$/i.test(origin)) return true;
   return false;
 }
 
