@@ -1,4 +1,5 @@
 import { subMinutes } from "date-fns";
+import { geocodeAddress, isWithinServiceArea } from "@/lib/address";
 import { env } from "@/lib/env";
 import { sendAbandonedLeadSms } from "@/lib/notifications";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -137,6 +138,7 @@ export async function runAbandonedLeadCheck(): Promise<{
   sent: number;
   suppressed_booked: number;
   suppressed_disqualified: number;
+  suppressed_out_of_area: number;
   suppressed_already_sent: number;
   suppressed_invalid_phone: number;
   send_failed: number;
@@ -169,6 +171,7 @@ export async function runAbandonedLeadCheck(): Promise<{
   let sent = 0;
   let suppressedBooked = 0;
   let suppressedDisqualified = 0;
+  let suppressedOutOfArea = 0;
   let suppressedAlreadySent = 0;
   let suppressedInvalidPhone = 0;
   let sendFailed = 0;
@@ -242,6 +245,30 @@ export async function runAbandonedLeadCheck(): Promise<{
       continue;
     }
 
+    let outOfArea = false;
+    try {
+      const geo = await geocodeAddress(postcode);
+      outOfArea = !(await isWithinServiceArea(geo.lat, geo.lng));
+    } catch {
+      // geocode failure → don't suppress, allow SMS to send
+    }
+    if (outOfArea) {
+      suppressedOutOfArea += 1;
+      await upsertTracker({
+        lead_session_id: leadSessionId,
+        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
+        client_name: clientName,
+        client_phone: clientPhone,
+        client_email: clientEmail,
+        postcode,
+        current_step: currentStep,
+        last_activity_at: lastActivityAt,
+        is_disqualified: false,
+        suppressed_reason: "out_of_area",
+      });
+      continue;
+    }
+
     if (await hasUpcomingConfirmedBooking(clientPhone)) {
       suppressedBooked += 1;
       await upsertTracker({
@@ -305,6 +332,7 @@ export async function runAbandonedLeadCheck(): Promise<{
     sent,
     suppressed_booked: suppressedBooked,
     suppressed_disqualified: suppressedDisqualified,
+    suppressed_out_of_area: suppressedOutOfArea,
     suppressed_already_sent: suppressedAlreadySent,
     suppressed_invalid_phone: suppressedInvalidPhone,
     send_failed: sendFailed,
