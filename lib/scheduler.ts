@@ -19,6 +19,7 @@ type SlotInput = {
   start_time: string;
   duration_mins: number;
   location: Location;
+  overrideMaxDrive?: boolean;
 };
 
 type ValidationResult = {
@@ -354,7 +355,7 @@ export async function validateCandidateSlot(input: SlotInput, existing: TimedBlo
   const prevLegFits = prev ? prevDrive <= availableFromPrev : true;
   const nextLegFits = nextDrive <= availableToNext;
 
-  if (prevDrive > env.maxDriveMins || nextDrive > env.maxDriveMins) {
+  if (!input.overrideMaxDrive && (prevDrive > env.maxDriveMins || nextDrive > env.maxDriveMins)) {
     return { valid: false, reason: "max_drive" };
   }
 
@@ -376,6 +377,7 @@ export async function findBestSlots(
   location: Location,
   durationMins: number,
   fromDate?: string,
+  overrideMaxDrive?: boolean,
 ): Promise<{ featured_slots: CandidateSlot[]; all_slots: Record<string, CandidateSlot[]> }> {
   const days = await fetchWorkingDays(fromDate, 7);
   const allValid: CandidateSlot[] = [];
@@ -394,6 +396,7 @@ export async function findBestSlots(
           start_time: candidate.start_time,
           duration_mins: candidate.duration_mins,
           location,
+          overrideMaxDrive,
         },
         existing,
       );
@@ -445,6 +448,7 @@ export async function findPreferredSlots(
   preferredDate: string,
   preferredWindow: PreferredWindow,
   preferredTime?: string,
+  overrideMaxDrive?: boolean,
 ): Promise<CandidateSlot[]> {
   const existing = await fetchDayAppointments(preferredDate);
   const day = (await fetchWorkingDays(preferredDate, 1)).find((d) => d.date === preferredDate);
@@ -460,6 +464,7 @@ export async function findPreferredSlots(
         start_time: candidate.start_time,
         duration_mins: candidate.duration_mins,
         location,
+        overrideMaxDrive,
       },
       existing,
     );

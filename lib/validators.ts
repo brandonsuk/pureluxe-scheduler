@@ -9,6 +9,7 @@ export const availableSlotsSchema = z.object({
   lng: z.coerce.number(),
   duration_mins: z.coerce.number().int().min(30).max(180),
   from_date: z.string().optional(),
+  override_max_drive: z.boolean().optional(),
 });
 
 const readinessSchema = z.preprocess((value) => {
@@ -53,6 +54,7 @@ export const preferredSlotsSchema = z.object({
     .string()
     .regex(/^([01]\d|2[0-3]):([0-5]\d)$/)
     .optional(),
+  override_max_drive: z.boolean().optional(),
 });
 
 export const availableDatesSchema = z.object({

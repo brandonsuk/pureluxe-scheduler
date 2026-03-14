@@ -15,6 +15,7 @@ export async function POST(request: Request) {
       { lat: parsed.data.lat, lng: parsed.data.lng },
       parsed.data.duration_mins,
       parsed.data.from_date,
+      parsed.data.override_max_drive,
     );
 
     return jsonOk(slotResults, request);
