@@ -6,6 +6,7 @@ import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
 import { sendBookingNotifications } from "@/lib/notifications";
 import { createCalendarEvent } from "@/lib/google-calendar";
+import { markAirtableAppointmentBooked } from "@/lib/airtable-sync";
 
 export const OPTIONS = corsOptions;
 
@@ -88,6 +89,16 @@ export async function POST(request: Request) {
       .single();
 
     if (error || !data) return jsonError(error?.message || "Failed to create appointment", request, 500);
+
+    // Sync booking back to Airtable CRM (fire-and-forget)
+    markAirtableAppointmentBooked(
+      payload.client_phone,
+      payload.client_email,
+      payload.date,
+      payload.start_time,
+    ).catch((e) => {
+      console.error("book_airtable_sync_failed", e);
+    });
 
     let googleEventId: string | null = null;
     try {
