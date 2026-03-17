@@ -482,8 +482,15 @@ export async function findPreferredSlots(
     scored.push({ ...candidate, score: result.score + penalty / 10 });
   }
 
-  return pickDiverseSlots(scored.sort((a, b) => a.score - b.score), 3, {
-    minGapMins: 45,
+  // Only return slots that fall within the requested window.
+  // Do NOT fall back to out-of-window slots — that produces confusing results
+  // (e.g. showing 11:30am when the user asked for 3–6pm).
+  const inWindow = scored.filter(
+    (s) => preferencePenaltyMins(s.start_time, preferredWindow) === 0,
+  );
+
+  return pickDiverseSlots(inWindow.sort((a, b) => a.score - b.score), 3, {
+    minGapMins: 30,
     maxPerDay: 3,
   });
 }
