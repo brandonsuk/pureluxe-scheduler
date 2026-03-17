@@ -20,6 +20,7 @@ type SlotInput = {
   duration_mins: number;
   location: Location;
   overrideMaxDrive?: boolean;
+  dayEndTime?: string; // latest start time for the working day (e.g. "17:00")
 };
 
 type ValidationResult = {
@@ -334,7 +335,17 @@ export async function validateCandidateSlot(input: SlotInput, existing: TimedBlo
   const nextLoc = next ? { lat: next.lat, lng: next.lng } : homeBase;
 
   const prevEnd = prev ? combineDateTime(prev.date, prev.end_time) : combineDateTime(input.date, "09:00");
-  const nextStart = next ? combineDateTime(next.date, next.start_time) : combineDateTime(input.date, "17:00");
+  // Drive-home deadline = working day end + 90 mins (client must be home by then).
+  // Falls back to "17:00" + 90 = "18:30" if dayEndTime is not provided.
+  const dayEndMins = input.dayEndTime
+    ? timeToMinutes(input.dayEndTime)
+    : 17 * 60;
+  const driveHomeDeadlineH = Math.floor((dayEndMins + 90) / 60).toString().padStart(2, "0");
+  const driveHomeDeadlineM = ((dayEndMins + 90) % 60).toString().padStart(2, "0");
+  const driveHomeDeadline = `${driveHomeDeadlineH}:${driveHomeDeadlineM}`;
+  const nextStart = next
+    ? combineDateTime(next.date, next.start_time)
+    : combineDateTime(input.date, driveHomeDeadline);
 
   let prevDrive: number;
   let nextDrive: number;
@@ -397,6 +408,7 @@ export async function findBestSlots(
           duration_mins: candidate.duration_mins,
           location,
           overrideMaxDrive,
+          dayEndTime: day.end_time,
         },
         existing,
       );
@@ -465,6 +477,7 @@ export async function findPreferredSlots(
         duration_mins: candidate.duration_mins,
         location,
         overrideMaxDrive,
+        dayEndTime: day.end_time,
       },
       existing,
     );
