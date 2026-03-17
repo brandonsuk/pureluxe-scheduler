@@ -379,7 +379,7 @@ export async function findBestSlots(
   fromDate?: string,
   overrideMaxDrive?: boolean,
 ): Promise<{ featured_slots: CandidateSlot[]; all_slots: Record<string, CandidateSlot[]> }> {
-  const days = await fetchWorkingDays(fromDate, 7);
+  const days = await fetchWorkingDays(fromDate, 14);
   const allValid: CandidateSlot[] = [];
   let checkedCandidates = 0;
   const MAX_CANDIDATES_TO_CHECK = 120;
