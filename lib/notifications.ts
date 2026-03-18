@@ -173,6 +173,6 @@ export async function sendQualificationSms(payload: {
   clientPhone: string;
   bookingLink: string;
 }) {
-  const body = `Hi ${payload.clientName}, great news - we'd love to visit you for a free PureLuxe bathroom consultation! Book a slot that suits you here: ${payload.bookingLink}`;
+  const body = `We'd love to visit you for your free PureLuxe Bathroom consultation! Slots are now available, book one that suits you here: ${payload.bookingLink}`;
   await sendSms(payload.clientPhone, body);
 }
