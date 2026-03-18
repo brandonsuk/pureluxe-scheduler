@@ -46,12 +46,13 @@ function BookingPageInner() {
       name: searchParams.get("name") || "",
       email: searchParams.get("email") || "",
       phone: searchParams.get("phone") || "",
+      postcode: searchParams.get("postcode") || "",
     }),
     [searchParams],
   );
 
   const [step, setStep] = useState(1);
-  const [address, setAddress] = useState("");
+  const [address, setAddress] = useState(prefill.postcode);
   const [coords, setCoords] = useState<{ lat: number; lng: number } | null>(null);
   const [readiness, setReadiness] = useState<ReadinessLevel | null>(null);
   const [duration, setDuration] = useState<number>(30);

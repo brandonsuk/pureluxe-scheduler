@@ -167,3 +167,12 @@ export async function sendAbandonedLeadSms(payload: AbandonedLeadPayload) {
   const body = `Hi ${payload.clientName}, you were very close to booking your free PureLuxe quote visit. Finish your booking here: ${payload.resumeLink}`;
   await sendSms(payload.clientPhone, body);
 }
+
+export async function sendQualificationSms(payload: {
+  clientName: string;
+  clientPhone: string;
+  bookingLink: string;
+}) {
+  const body = `Hi ${payload.clientName}, great news - we'd love to visit you for a free PureLuxe bathroom consultation! Book a slot that suits you here: ${payload.bookingLink}`;
+  await sendSms(payload.clientPhone, body);
+}
