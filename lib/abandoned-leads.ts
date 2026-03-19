@@ -2,6 +2,7 @@ import { subMinutes } from "date-fns";
 import { geocodeAddress, isWithinServiceArea } from "@/lib/address";
 import { env } from "@/lib/env";
 import { sendAbandonedLeadSms } from "@/lib/notifications";
+import { markAirtableAbandonedSmsSent } from "@/lib/airtable-sync";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDateInTimeZone } from "@/lib/time";
 
@@ -293,6 +294,8 @@ export async function runAbandonedLeadCheck(): Promise<{
         clientPhone,
         resumeLink: buildResumeLink(leadSessionId),
       });
+
+      await markAirtableAbandonedSmsSent(clientPhone, clientEmail);
 
       const sentAt = new Date().toISOString();
       await upsertTracker({

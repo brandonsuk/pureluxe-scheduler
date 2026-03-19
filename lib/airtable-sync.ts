@@ -78,6 +78,43 @@ export async function markAirtableAppointmentBooked(
 }
 
 /**
+ * Finds the Airtable lead record matching the given phone or email, then ticks
+ * the "Abandoned SMS Sent" checkbox so the team can see the follow-up was fired.
+ * Called automatically after the abandoned-lead SMS is successfully delivered.
+ *
+ * Returns true if the record was updated, false if not found or not configured.
+ */
+export async function markAirtableAbandonedSmsSent(phone: string, email: string): Promise<boolean> {
+  if (!env.airtableApiKey) return false;
+
+  const variants = phoneVariants(phone);
+  const phoneFormula = variants.map((p) => `{phone}="${p}"`).join(",");
+  const formula = `OR(${phoneFormula},{email}="${email.toLowerCase()}")`;
+
+  try {
+    const searchRes = await airtableFetch(
+      `?filterByFormula=${encodeURIComponent(formula)}&maxRecords=1&sort[0][field]=Created Time&sort[0][direction]=desc`,
+    );
+    if (!searchRes.ok) return false;
+    const searchData = (await searchRes.json()) as { records?: { id: string }[] };
+    const record = searchData.records?.[0];
+    if (!record) return false;
+
+    const patchRes = await airtableFetch(`/${record.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        fields: {
+          "Abandoned SMS Sent": true,
+        },
+      }),
+    });
+    return patchRes.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Finds the Airtable lead record matching the given phone or email, then marks
  * it as cancelled (sets Cancelled Appointment = true, clears Booked Appointment
  * and booking date/time). Called automatically when a lead texts/emails "CA".
