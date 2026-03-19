@@ -68,11 +68,14 @@ export async function POST(request: Request) {
 
     if (!check.valid) return jsonError(`Slot no longer available: ${check.reason}`, request, 409);
 
-    // Cancel any existing confirmed booking for this lead before creating a new one
+    // Cancel any existing upcoming confirmed booking for this lead before creating a new one.
+    // We only look at future dates so past appointments don't prevent a lead from re-booking.
+    const today = new Date().toISOString().slice(0, 10);
     const { data: existingBookings } = await supabaseAdmin
       .from("appointments")
       .select("id, google_event_id")
       .eq("status", "confirmed")
+      .gte("date", today)
       .or(`client_phone.eq.${payload.client_phone},client_email.eq.${payload.client_email}`);
 
     if (existingBookings && existingBookings.length > 0) {
