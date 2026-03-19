@@ -5,7 +5,7 @@ import { addMins } from "@/lib/time";
 import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
 import { sendBookingNotifications } from "@/lib/notifications";
-import { createCalendarEvent } from "@/lib/google-calendar";
+import { createCalendarEvent, cancelCalendarEvent } from "@/lib/google-calendar";
 import { markAirtableAppointmentBooked } from "@/lib/airtable-sync";
 
 export const OPTIONS = corsOptions;
@@ -67,6 +67,25 @@ export async function POST(request: Request) {
     );
 
     if (!check.valid) return jsonError(`Slot no longer available: ${check.reason}`, request, 409);
+
+    // Cancel any existing confirmed booking for this lead before creating a new one
+    const { data: existingBookings } = await supabaseAdmin
+      .from("appointments")
+      .select("id, google_event_id")
+      .eq("status", "confirmed")
+      .or(`client_phone.eq.${payload.client_phone},client_email.eq.${payload.client_email}`);
+
+    if (existingBookings && existingBookings.length > 0) {
+      const ids = existingBookings.map((b: { id: string }) => b.id);
+      await supabaseAdmin.from("appointments").update({ status: "cancelled" }).in("id", ids);
+      for (const booking of existingBookings as { id: string; google_event_id?: string | null }[]) {
+        if (booking.google_event_id) {
+          await cancelCalendarEvent(booking.google_event_id).catch((e) => {
+            console.error("book_cancel_old_gcal_failed", e);
+          });
+        }
+      }
+    }
 
     const endTime = addMins(payload.start_time, payload.duration_mins);
     const { data, error } = await supabaseAdmin
