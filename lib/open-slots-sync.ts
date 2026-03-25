@@ -68,12 +68,15 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     maxResults: 2500,
   });
 
+  const startDate = format(windowStart, "yyyy-MM-dd");
+  const endDate = format(windowEnd, "yyyy-MM-dd");
+
   const { data: existingAppointments, error: existingAppointmentsError } = await supabaseAdmin
     .from("appointments")
     .select("google_event_id")
     .not("google_event_id", "is", null)
-    .gte("date", format(windowStart, "yyyy-MM-dd"))
-    .lte("date", format(windowEnd, "yyyy-MM-dd"));
+    .gte("date", startDate)
+    .lte("date", endDate);
   if (existingAppointmentsError) throw new Error(existingAppointmentsError.message);
 
   const appointmentEventIds = new Set(
@@ -81,6 +84,17 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
       .map((row) => row.google_event_id)
       .filter((value): value is string => typeof value === "string" && value.length > 0),
   );
+
+  // Pre-load existing blocker coords so we don't re-geocode events we've already seen
+  const { data: existingBlockers } = await supabaseAdmin
+    .from("calendar_blockers")
+    .select("google_event_id,lat,lng")
+    .gte("date", startDate)
+    .lte("date", endDate);
+  const existingBlockerCoords = new Map<string, { lat: number; lng: number }>();
+  for (const b of existingBlockers || []) {
+    existingBlockerCoords.set(b.google_event_id, { lat: b.lat, lng: b.lng });
+  }
 
   const rows: Array<{
     date: string;
@@ -155,19 +169,26 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     let coords: { lat: number; lng: number };
 
     if (location) {
-      let cached = geocodeCache.get(location);
-      if (!cached) {
-        try {
-          const geo = await geocodeAddress(location);
-          cached = { lat: geo.lat, lng: geo.lng };
-          geocodeCache.set(location, cached);
-        } catch {
-          // Geocoding failed — fall back to home base so the time block is still respected
-          cached = { lat: env.homeBaseLat, lng: env.homeBaseLng };
-          geocodeCache.set(location, cached);
+      // Reuse previously geocoded coords if we have them — avoids repeat Loqate calls
+      const existing = existingBlockerCoords.get(event.id);
+      if (existing) {
+        coords = existing;
+        geocodeCache.set(location, existing);
+      } else {
+        let cached = geocodeCache.get(location);
+        if (!cached) {
+          try {
+            const geo = await geocodeAddress(location);
+            cached = { lat: geo.lat, lng: geo.lng };
+            geocodeCache.set(location, cached);
+          } catch {
+            // Geocoding failed — fall back to home base so the time block is still respected
+            cached = { lat: env.homeBaseLat, lng: env.homeBaseLng };
+            geocodeCache.set(location, cached);
+          }
         }
+        coords = cached;
       }
-      coords = cached;
     } else {
       // No location on the event — use home base so the time is still blocked
       coords = { lat: env.homeBaseLat, lng: env.homeBaseLng };
@@ -184,9 +205,6 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
       end_time: end.time,
     });
   }
-
-  const startDate = format(windowStart, "yyyy-MM-dd");
-  const endDate = format(windowEnd, "yyyy-MM-dd");
 
   const { error: deleteError } = await supabaseAdmin
     .from("working_hour_windows")
