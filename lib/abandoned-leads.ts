@@ -176,6 +176,7 @@ export async function runAbandonedLeadCheck(): Promise<{
   let suppressedAlreadySent = 0;
   let suppressedInvalidPhone = 0;
   let sendFailed = 0;
+  const postcodeAreaCache = new Map<string, boolean>(); // postcode → outOfArea
 
   for (const row of latestRows) {
     const leadSessionId = String(row.lead_session_id || "");
@@ -206,6 +207,10 @@ export async function runAbandonedLeadCheck(): Promise<{
     }
 
     const tracker = trackers.get(leadSessionId);
+    if (tracker?.suppressed_reason === "out_of_area") {
+      suppressedOutOfArea += 1;
+      continue;
+    }
     if (tracker?.suppressed_reason?.startsWith("send_failed")) {
       sendFailed += 1;
       continue;
@@ -248,8 +253,13 @@ export async function runAbandonedLeadCheck(): Promise<{
 
     let outOfArea = false;
     try {
-      const geo = await geocodeAddress(postcode);
-      outOfArea = !(await isWithinServiceArea(geo.lat, geo.lng));
+      if (postcodeAreaCache.has(postcode)) {
+        outOfArea = postcodeAreaCache.get(postcode)!;
+      } else {
+        const geo = await geocodeAddress(postcode);
+        outOfArea = !(await isWithinServiceArea(geo.lat, geo.lng));
+        postcodeAreaCache.set(postcode, outOfArea);
+      }
     } catch {
       // geocode failure → don't suppress, allow SMS to send
     }
