@@ -211,6 +211,10 @@ export async function runAbandonedLeadCheck(): Promise<{
       suppressedOutOfArea += 1;
       continue;
     }
+    if (tracker?.suppressed_reason === "booked") {
+      suppressedBooked += 1;
+      continue;
+    }
     if (tracker?.suppressed_reason?.startsWith("send_failed")) {
       sendFailed += 1;
       continue;
