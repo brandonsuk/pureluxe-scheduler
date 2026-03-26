@@ -24,6 +24,7 @@ type AbandonedTrackerRow = {
   lead_session_id: string;
   reminder_sent_at: string | null;
   suppressed_reason: string | null;
+  geocoded_out_of_area: boolean | null;
 };
 
 function normalizePhoneForMatch(phone: string): string {
@@ -87,7 +88,7 @@ async function loadExistingTrackers(sessionIds: string[]): Promise<Map<string, A
 
   const { data, error } = await supabaseAdmin
     .from("abandoned_followups")
-    .select("lead_session_id,reminder_sent_at,suppressed_reason")
+    .select("lead_session_id,reminder_sent_at,suppressed_reason,geocoded_out_of_area")
     .in("lead_session_id", sessionIds);
 
   if (error) throw new Error(error.message);
@@ -119,6 +120,7 @@ async function upsertTracker(row: {
   is_disqualified: boolean;
   reminder_sent_at?: string | null;
   suppressed_reason?: string | null;
+  geocoded_out_of_area?: boolean | null;
 }) {
   const { error } = await supabaseAdmin
     .from("abandoned_followups")
@@ -255,17 +257,35 @@ export async function runAbandonedLeadCheck(): Promise<{
       continue;
     }
 
+    // Use cached geocode result if available; otherwise geocode and persist it
     let outOfArea = false;
-    try {
-      if (postcodeAreaCache.has(postcode)) {
-        outOfArea = postcodeAreaCache.get(postcode)!;
-      } else {
-        const geo = await geocodeAddress(postcode);
-        outOfArea = !(await isWithinServiceArea(geo.lat, geo.lng));
-        postcodeAreaCache.set(postcode, outOfArea);
+    if (tracker?.geocoded_out_of_area != null) {
+      outOfArea = tracker.geocoded_out_of_area;
+    } else {
+      try {
+        if (postcodeAreaCache.has(postcode)) {
+          outOfArea = postcodeAreaCache.get(postcode)!;
+        } else {
+          const geo = await geocodeAddress(postcode);
+          outOfArea = !(await isWithinServiceArea(geo.lat, geo.lng));
+          postcodeAreaCache.set(postcode, outOfArea);
+        }
+      } catch {
+        // geocode failure → don't suppress, allow SMS to send
       }
-    } catch {
-      // geocode failure → don't suppress, allow SMS to send
+      // Persist the result so future runs skip the geocode entirely
+      await upsertTracker({
+        lead_session_id: leadSessionId,
+        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
+        client_name: clientName,
+        client_phone: clientPhone,
+        client_email: clientEmail,
+        postcode,
+        current_step: currentStep,
+        last_activity_at: lastActivityAt,
+        is_disqualified: false,
+        geocoded_out_of_area: outOfArea,
+      });
     }
     if (outOfArea) {
       suppressedOutOfArea += 1;
@@ -280,6 +300,7 @@ export async function runAbandonedLeadCheck(): Promise<{
         last_activity_at: lastActivityAt,
         is_disqualified: false,
         suppressed_reason: "out_of_area",
+        geocoded_out_of_area: true,
       });
       continue;
     }
