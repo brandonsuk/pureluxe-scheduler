@@ -42,6 +42,8 @@ function normalizeBookPayload(input: Record<string, unknown>) {
         : undefined),
     wall_type: input.wall_type ?? input.wallType,
     budget: input.budget,
+    override_max_drive:
+      typeof input.override_max_drive === "boolean" ? input.override_max_drive : undefined,
   };
 }
 
