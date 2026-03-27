@@ -42,6 +42,7 @@ export const bookSchema = z.object({
   renovation_type: z.string().min(1).optional(),
   wall_type: z.string().min(1).optional(),
   budget: z.string().min(1).optional(),
+  override_max_drive: z.boolean().optional(),
 });
 
 export const preferredSlotsSchema = z.object({

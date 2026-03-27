@@ -62,6 +62,7 @@ export async function POST(request: Request) {
         start_time: payload.start_time,
         duration_mins: payload.duration_mins,
         location: { lat: payload.lat, lng: payload.lng },
+        overrideMaxDrive: payload.override_max_drive,
       },
       existing,
     );
