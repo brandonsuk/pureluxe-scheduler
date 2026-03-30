@@ -507,14 +507,15 @@ export async function findPreferredSlots(
   // Only return slots that fall within the requested window.
   // Do NOT fall back to out-of-window slots — that produces confusing results
   // (e.g. showing 11:30am when the user asked for 3–6pm).
+  // Also restrict to :00 and :30 start times for clean presentation.
   const inWindow = scored.filter(
-    (s) => preferencePenaltyMins(s.start_time, preferredWindow) === 0,
+    (s) =>
+      preferencePenaltyMins(s.start_time, preferredWindow) === 0 &&
+      (s.start_time.endsWith(":00") || s.start_time.endsWith(":30")),
   );
 
-  return pickDiverseSlots(inWindow.sort((a, b) => a.score - b.score), 3, {
-    minGapMins: 30,
-    maxPerDay: 3,
-  });
+  // Return all valid slots in chronological order so the admin can see every option.
+  return inWindow.sort((a, b) => a.start_time.localeCompare(b.start_time));
 }
 
 export async function findAvailableDates(
