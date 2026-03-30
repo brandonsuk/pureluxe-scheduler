@@ -29,6 +29,8 @@ type WorkingHour = {
   source?: "manual" | "google_open_slots";
 };
 
+type Tab = "appointments" | "working-hours";
+
 export default function AdminPage() {
   const [password, setPassword] = useState("");
   const [authenticated, setAuthenticated] = useState(false);
@@ -38,6 +40,7 @@ export default function AdminPage() {
   const [error, setError] = useState("");
   const [syncing, setSyncing] = useState(false);
   const [syncingOpenSlots, setSyncingOpenSlots] = useState(false);
+  const [activeTab, setActiveTab] = useState<Tab>("appointments");
 
   const [startDate, setStartDate] = useState("");
   const [endDate, setEndDate] = useState("");
@@ -141,7 +144,7 @@ export default function AdminPage() {
         },
       );
       await loadAppointments(password);
-      setStatus(`Calendar sync complete: checked ${result.checked}, out of sync ${result.out_of_sync}, missing ${result.missing}.`);
+      setStatus(`Sync Complete · Checked: ${result.checked} · Out of sync: ${result.out_of_sync} · Missing: ${result.missing}`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Calendar sync failed");
     } finally {
@@ -162,9 +165,7 @@ export default function AdminPage() {
         },
       );
       await loadWorkingHours(password);
-      setStatus(
-        `Open slots sync complete (${result.window_start} to ${result.window_end}): imported ${result.imported}, skipped ${result.skipped}.`,
-      );
+      setStatus(`Open slots synced · Imported: ${result.imported} · Skipped: ${result.skipped} (${result.window_start} to ${result.window_end})`);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Open slots sync failed");
     } finally {
@@ -178,7 +179,7 @@ export default function AdminPage() {
         <section className="panel">
           <h1>PureLuxe Admin</h1>
           <p className="label">Password</p>
-          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} />
+          <input type="password" value={password} onChange={(e) => setPassword(e.target.value)} onKeyDown={(e) => e.key === "Enter" && login()} />
           <div className="actions" style={{ marginTop: 12 }}>
             <button onClick={login}>Login</button>
           </div>
@@ -192,83 +193,110 @@ export default function AdminPage() {
   return (
     <main className="shell">
       <section className="panel grid">
-        <h1>Admin Panel</h1>
+        <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+          <h1 style={{ margin: 0 }}>Admin Panel</h1>
+          <button onClick={() => { setAuthenticated(false); setPassword(""); }} style={{ background: "none", border: "none", cursor: "pointer", fontSize: 20 }}>
+            &#x2192;
+          </button>
+        </div>
 
-        <section className="card">
-          <div className="actions" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ margin: 0 }}>Upcoming Appointments</h2>
-            <button onClick={runCalendarSyncNow} disabled={syncing}>
-              {syncing ? "Syncing..." : "Run Calendar Sync Now"}
-            </button>
-          </div>
-          <div className="list">
-            {appointments.map((appt) => (
-              <div key={appt.id} className="card">
-                <strong>{appt.client_name}</strong>
-                <p>
-                  {appt.date} {appt.start_time.slice(0, 5)} ({appt.duration_mins} mins)
-                </p>
-                <p>{appt.address}</p>
-                <p>Readiness: {appt.readiness_level}</p>
-                <p className={`sync-badge sync-${appt.calendar_sync_state || "in_sync"}`}>
-                  Calendar: {syncLabel(appt.calendar_sync_state)}
-                </p>
-                <button onClick={() => cancelAppointment(appt.id)}>Cancel</button>
+        {/* Tabs */}
+        <div style={{ display: "flex", gap: 8 }}>
+          <button
+            onClick={() => setActiveTab("appointments")}
+            style={{
+              flex: 1,
+              padding: "10px 16px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              background: activeTab === "appointments" ? "#c9a96e" : "transparent",
+              color: activeTab === "appointments" ? "#fff" : "inherit",
+              fontWeight: 600,
+            }}
+          >
+            Appointments
+          </button>
+          <button
+            onClick={() => setActiveTab("working-hours")}
+            style={{
+              flex: 1,
+              padding: "10px 16px",
+              borderRadius: 8,
+              border: "none",
+              cursor: "pointer",
+              background: activeTab === "working-hours" ? "#c9a96e" : "transparent",
+              color: activeTab === "working-hours" ? "#fff" : "inherit",
+              fontWeight: 600,
+            }}
+          >
+            Working Hours
+          </button>
+        </div>
+
+        {/* Appointments Tab */}
+        {activeTab === "appointments" && (
+          <section className="card">
+            <div className="actions" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0 }}>Upcoming Appointments</h2>
+              <button onClick={runCalendarSyncNow} disabled={syncing}>
+                {syncing ? "Syncing..." : "Run Calendar Sync Now"}
+              </button>
+            </div>
+            <div className="list">
+              {appointments.map((appt) => (
+                <div key={appt.id} className="card">
+                  <strong>{appt.client_name}</strong>
+                  <p>
+                    {appt.date} {appt.start_time.slice(0, 5)} ({appt.duration_mins} mins)
+                  </p>
+                  <p>{appt.address}</p>
+                  <p>{appt.client_phone} · {appt.client_email}</p>
+                  <p className={`sync-badge sync-${appt.calendar_sync_state || "in_sync"}`}>
+                    Calendar: {syncLabel(appt.calendar_sync_state)}
+                  </p>
+                  <button onClick={() => cancelAppointment(appt.id)}>Cancel</button>
+                </div>
+              ))}
+              {!appointments.length && <p className="label">No upcoming appointments.</p>}
+            </div>
+          </section>
+        )}
+
+        {/* Working Hours Tab */}
+        {activeTab === "working-hours" && (
+          <section className="card">
+            <div className="actions" style={{ justifyContent: "space-between", alignItems: "center" }}>
+              <h2 style={{ margin: 0 }}>Working Hours</h2>
+              <button onClick={runOpenSlotsSyncNow} disabled={syncingOpenSlots}>
+                {syncingOpenSlots ? "Syncing..." : "Sync Open Slots from Google"}
+              </button>
+            </div>
+
+            <div style={{ marginTop: 16 }}>
+              <p className="label" style={{ textTransform: "uppercase", fontSize: 11, letterSpacing: 1 }}>Add Working Hours</p>
+              <div className="grid grid-2" style={{ marginTop: 8 }}>
+                <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} placeholder="dd/mm/yyyy" />
+                <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} placeholder="End date (optional)" />
+                <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
+                <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
               </div>
-            ))}
-            {!appointments.length && <p className="label">No upcoming appointments.</p>}
-          </div>
-        </section>
-
-        <section className="card">
-          <div className="actions" style={{ justifyContent: "space-between", alignItems: "center" }}>
-            <h2 style={{ margin: 0 }}>Working Hours</h2>
-            <button onClick={runOpenSlotsSyncNow} disabled={syncingOpenSlots}>
-              {syncingOpenSlots ? "Syncing..." : "Sync Open Slots from Google"}
-            </button>
-          </div>
-          <div className="grid grid-2">
-            <div>
-              <p className="label">Start date</p>
-              <input type="date" value={startDate} onChange={(e) => setStartDate(e.target.value)} />
-            </div>
-            <div>
-              <p className="label">End date (optional)</p>
-              <input type="date" value={endDate} onChange={(e) => setEndDate(e.target.value)} />
-            </div>
-            <div>
-              <p className="label">Start time</p>
-              <input type="time" value={startTime} onChange={(e) => setStartTime(e.target.value)} />
-            </div>
-            <div>
-              <p className="label">End time</p>
-              <input type="time" value={endTime} onChange={(e) => setEndTime(e.target.value)} />
-            </div>
-          </div>
-          <div className="actions" style={{ marginTop: 12 }}>
-            <button onClick={saveWorkingHours}>Save</button>
-          </div>
-          <h3 style={{ marginTop: 16 }}>Current Week</h3>
-          <div className="list">
-            {hours.map((hour) => (
-              <div key={hour.id || hour.date} className="card">
-                {hour.date}: {hour.start_time} - {hour.end_time}
-                {hour.source === "google_open_slots" ? " (Google Open slots)" : ""}
+              <div className="actions" style={{ marginTop: 12 }}>
+                <button onClick={saveWorkingHours} style={{ width: "100%" }}>Save</button>
               </div>
-            ))}
-          </div>
-        </section>
+            </div>
 
-        <section className="card">
-          <h2>Map View</h2>
-          <p className="label">Select date</p>
-          <input type="date" value={mapDate} onChange={(e) => setMapDate(e.target.value)} />
-          {routeEmbedUrl ? (
-            <iframe className="map" src={routeEmbedUrl} loading="lazy" />
-          ) : (
-            <p className="label">Pick a date with appointments to view route.</p>
-          )}
-        </section>
+            <div className="list" style={{ marginTop: 16 }}>
+              {hours.map((hour) => (
+                <div key={hour.id || hour.date} className="card">
+                  {hour.date}: {hour.start_time} – {hour.end_time}
+                  {hour.source === "google_open_slots" ? " (Google Open Slots)" : ""}
+                </div>
+              ))}
+              {!hours.length && <p className="label">No working hours set.</p>}
+            </div>
+          </section>
+        )}
 
         {status ? <p className="success">{status}</p> : null}
         {error ? <p className="error">{error}</p> : null}
