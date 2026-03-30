@@ -390,14 +390,20 @@ export async function findBestSlots(
   fromDate?: string,
   overrideMaxDrive?: boolean,
 ): Promise<{ featured_slots: CandidateSlot[]; all_slots: Record<string, CandidateSlot[]> }> {
-  const days = await fetchWorkingDays(fromDate, 14);
+  // Fetch up to 60 calendar days so we can find the first 14 days that actually have open slots.
+  const days = await fetchWorkingDays(fromDate, 60);
   const allValid: CandidateSlot[] = [];
   let checkedCandidates = 0;
   const MAX_CANDIDATES_TO_CHECK = 120;
+  const datesWithSlots = new Set<string>();
 
   for (const day of days) {
+    // Stop once we've seen 14 distinct days that yielded at least one valid slot.
+    if (datesWithSlots.size >= 14) break;
+
     const existing = await fetchDayAppointments(day.date);
     const candidates = generateCandidateSlots(day, durationMins);
+    let dayHadValidSlot = false;
 
     for (const candidate of candidates) {
       checkedCandidates += 1;
@@ -415,10 +421,13 @@ export async function findBestSlots(
 
       if (result.valid && typeof result.score === "number") {
         allValid.push({ ...candidate, score: result.score });
+        dayHadValidSlot = true;
       }
 
       if (checkedCandidates >= MAX_CANDIDATES_TO_CHECK && allValid.length >= 5) break;
     }
+
+    if (dayHadValidSlot) datesWithSlots.add(day.date);
     if (checkedCandidates >= MAX_CANDIDATES_TO_CHECK && allValid.length >= 5) break;
   }
 
@@ -513,13 +522,17 @@ export async function findAvailableDates(
   durationMins: number,
   preferredWindow: PreferredWindow,
   fromDate?: string,
-  daysAhead = 14,
+  targetDaysWithSlots = 14,
 ): Promise<string[]> {
-  const days = await fetchWorkingDays(fromDate, daysAhead);
+  // Fetch up to 60 calendar days so we can return the first targetDaysWithSlots days
+  // that actually have open slots, rather than just the first N calendar days.
+  const calendarWindow = Math.min(60, Math.max(targetDaysWithSlots * 3, 30));
+  const days = await fetchWorkingDays(fromDate, calendarWindow);
   const uniqueDates = [...new Set(days.map((d) => d.date))].sort((a, b) => a.localeCompare(b));
   const availableDates: string[] = [];
 
   for (const date of uniqueDates) {
+    if (availableDates.length >= targetDaysWithSlots) break;
     const slots = await findPreferredSlots(location, durationMins, date, preferredWindow);
     if (slots.length > 0) availableDates.push(date);
   }
