@@ -378,9 +378,19 @@ export async function validateCandidateSlot(input: SlotInput, existing: TimedBlo
   const clusterShapePenalty = clusterPenalty(input.location, existing);
   const detourPenalty = sandwichDetourPenalty(input.location, prev, next);
 
+  // End-of-day stranding penalty: penalise being far from home base late in the working day.
+  // Formula: distanceFromHomeKm × (appointmentEndMins - dayStartMins) / (dayEndMins - dayStartMins)
+  // A 14:00 Edinburgh job (~50km) scores ~33 extra; a 9:00 Edinburgh job scores ~5.
+  // This naturally discourages far-from-home mid/late-day bookings without blocking them entirely.
+  const DAY_START_MINS = 9 * 60;
+  const endTimeMins = timeToMinutes(input.start_time) + input.duration_mins;
+  const strandingDaySpan = Math.max(1, dayEndMins - DAY_START_MINS);
+  const strandingProgress = Math.max(0, (endTimeMins - DAY_START_MINS) / strandingDaySpan);
+  const strandingPenalty = straightLineKm(input.location, homeBase) * strandingProgress;
+
   return {
     valid: true,
-    score: extraDriveScore + clusterShapePenalty + detourPenalty,
+    score: extraDriveScore + clusterShapePenalty + detourPenalty + strandingPenalty,
   };
 }
 
