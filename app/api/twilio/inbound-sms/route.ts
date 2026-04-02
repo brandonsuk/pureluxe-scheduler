@@ -68,7 +68,7 @@ function parseBody(formBody: string): Record<string, string> {
 }
 
 function commandIsCancel(body: string): boolean {
-  return body.trim().toUpperCase() === "CA";
+  return /\bCA\b/i.test(body);
 }
 
 function commandIsUndo(body: string): boolean {
