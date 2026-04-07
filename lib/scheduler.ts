@@ -5,6 +5,13 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { combineDateTime, minutesBetween, todayIsoDate } from "@/lib/time";
 import type { Appointment, CalendarBlocker, CandidateSlot, Location, WorkingHourWindow, WorkingHours } from "@/lib/types";
 
+const MIN_LEAD_TIME_MS = 12 * 60 * 60 * 1000; // 12 hours
+
+function isWithinMinLeadTime(date: string, startTime: string): boolean {
+  const slotStart = combineDateTime(date, startTime);
+  return slotStart.getTime() - Date.now() < MIN_LEAD_TIME_MS;
+}
+
 type TimedBlockWithLoc = {
   id: string;
   date: string;
@@ -416,6 +423,7 @@ export async function findBestSlots(
     let dayHadValidSlot = false;
 
     for (const candidate of candidates) {
+      if (isWithinMinLeadTime(candidate.date, candidate.start_time)) continue;
       checkedCandidates += 1;
       const result = await validateCandidateSlot(
         {
@@ -480,6 +488,7 @@ export async function findPreferredSlots(
   preferredWindow: PreferredWindow,
   preferredTime?: string,
   overrideMaxDrive?: boolean,
+  skipMinLeadTime?: boolean,
 ): Promise<CandidateSlot[]> {
   const existing = await fetchDayAppointments(preferredDate);
   const day = (await fetchWorkingDays(preferredDate, 1)).find((d) => d.date === preferredDate);
@@ -489,6 +498,7 @@ export async function findPreferredSlots(
   const scored: CandidateSlot[] = [];
 
   for (const candidate of candidates) {
+    if (!skipMinLeadTime && isWithinMinLeadTime(candidate.date, candidate.start_time)) continue;
     const result = await validateCandidateSlot(
       {
         date: candidate.date,

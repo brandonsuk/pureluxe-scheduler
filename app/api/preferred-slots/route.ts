@@ -18,6 +18,7 @@ export async function POST(request: Request) {
       parsed.data.preferred_window,
       parsed.data.preferred_time,
       parsed.data.override_max_drive,
+      parsed.data.skip_min_lead_time,
     );
 
     return jsonOk({ slots }, request);

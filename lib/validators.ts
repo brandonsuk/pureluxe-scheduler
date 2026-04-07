@@ -56,6 +56,7 @@ export const preferredSlotsSchema = z.object({
     .regex(/^([01]\d|2[0-3]):([0-5]\d)$/)
     .optional(),
   override_max_drive: z.boolean().optional(),
+  skip_min_lead_time: z.boolean().optional(),
 });
 
 export const availableDatesSchema = z.object({
