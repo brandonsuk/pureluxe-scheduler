@@ -67,6 +67,25 @@ function parseBody(formBody: string): Record<string, string> {
   return out;
 }
 
+async function buildRescheduleLink(clientPhone: string): Promise<string> {
+  const base = env.funnelBaseUrl.replace(/\/$/, "");
+  try {
+    const { data } = await supabaseAdmin
+      .from("abandoned_followups")
+      .select("lead_session_id")
+      .eq("client_phone", clientPhone)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data?.lead_session_id) {
+      return `${base}/resume?session=${encodeURIComponent(data.lead_session_id)}`;
+    }
+  } catch {
+    // fall through to plain link
+  }
+  return base;
+}
+
 function commandIsCancel(body: string): boolean {
   return /\bCA\b/i.test(body);
 }
@@ -252,5 +271,11 @@ export async function POST(request: Request) {
     startTime: nextAppt.start_time,
   }, { sendSms: false });
 
-  return xmlResponse(`Your appointment on ${nextAppt.date} at ${nextAppt.start_time.slice(0, 5)} has been cancelled.`);
+  // Look up lead session so we can send a personalised reschedule link
+  const rescheduleLink = await buildRescheduleLink(nextAppt.client_phone);
+
+  return xmlResponse(
+    `Your appointment on ${nextAppt.date} at ${nextAppt.start_time.slice(0, 5)} has been cancelled. ` +
+    `To rebook at a time that suits you: ${rescheduleLink}`,
+  );
 }
