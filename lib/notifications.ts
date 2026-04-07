@@ -1,6 +1,7 @@
 import { Resend } from "resend";
 import twilio from "twilio";
 import { env } from "@/lib/env";
+import { supabaseAdmin } from "@/lib/supabase";
 
 const resend = env.resendApiKey ? new Resend(env.resendApiKey) : null;
 const twilioClient = env.twilioSid && env.twilioAuthToken ? twilio(env.twilioSid, env.twilioAuthToken) : null;
@@ -122,8 +123,84 @@ export async function sendCancellationNotifications(
   ]);
 }
 
+// ---------------------------------------------------------------------------
+// Rate limiting
+// ---------------------------------------------------------------------------
+
+const SMS_RECIPIENT_LIMIT = 20;
+const EMAIL_RECIPIENT_LIMIT = 20;
+const SMS_DAILY_LIMIT = 500;
+const EMAIL_DAILY_LIMIT = 500;
+
+function todayKey(): string {
+  return new Date().toISOString().slice(0, 10);
+}
+
+function isAdminAddress(address: string): boolean {
+  return address.endsWith("@pureluxebathrooms.co.uk") || address === env.adminAlertEmail;
+}
+
+async function getRateLimitCount(key: string): Promise<number> {
+  const { data } = await supabaseAdmin
+    .from("message_rate_limits")
+    .select("count")
+    .eq("key", key)
+    .maybeSingle();
+  return (data as { count: number } | null)?.count ?? 0;
+}
+
+async function incrementRateLimit(key: string): Promise<void> {
+  const current = await getRateLimitCount(key);
+  await supabaseAdmin.from("message_rate_limits").upsert(
+    { key, count: current + 1, updated_at: new Date().toISOString() },
+    { onConflict: "key" },
+  );
+}
+
+async function checkSmsAllowed(to: string): Promise<boolean> {
+  const [recipientCount, dailyCount] = await Promise.all([
+    getRateLimitCount(`sms:recipient:${to}`),
+    getRateLimitCount(`sms:day:${todayKey()}`),
+  ]);
+  if (recipientCount >= SMS_RECIPIENT_LIMIT) {
+    // eslint-disable-next-line no-console
+    console.warn("sms_blocked_recipient_limit", { to, count: recipientCount });
+    return false;
+  }
+  if (dailyCount >= SMS_DAILY_LIMIT) {
+    // eslint-disable-next-line no-console
+    console.warn("sms_blocked_daily_limit", { count: dailyCount });
+    return false;
+  }
+  return true;
+}
+
+async function checkEmailAllowed(to: string): Promise<boolean> {
+  const [recipientCount, dailyCount] = await Promise.all([
+    getRateLimitCount(`email:recipient:${to}`),
+    getRateLimitCount(`email:day:${todayKey()}`),
+  ]);
+  if (recipientCount >= EMAIL_RECIPIENT_LIMIT) {
+    // eslint-disable-next-line no-console
+    console.warn("email_blocked_recipient_limit", { to, count: recipientCount });
+    return false;
+  }
+  if (dailyCount >= EMAIL_DAILY_LIMIT) {
+    // eslint-disable-next-line no-console
+    console.warn("email_blocked_daily_limit", { count: dailyCount });
+    return false;
+  }
+  return true;
+}
+
+// ---------------------------------------------------------------------------
+
 async function sendEmail(to: string, subject: string, text: string, options?: { html?: string }) {
   if (!resend) return;
+  if (!isAdminAddress(to)) {
+    const allowed = await checkEmailAllowed(to);
+    if (!allowed) return;
+  }
   await resend.emails.send({
     from: "PureLuxe <contact@pureluxebathrooms.co.uk>",
     to,
@@ -131,15 +208,27 @@ async function sendEmail(to: string, subject: string, text: string, options?: { 
     text,
     html: options?.html,
   });
+  if (!isAdminAddress(to)) {
+    await Promise.allSettled([
+      incrementRateLimit(`email:recipient:${to}`),
+      incrementRateLimit(`email:day:${todayKey()}`),
+    ]);
+  }
 }
 
 async function sendSms(to: string, body: string) {
   if (!twilioClient || !env.twilioPhoneNumber) return;
+  const allowed = await checkSmsAllowed(to);
+  if (!allowed) return;
   await twilioClient.messages.create({
     from: env.twilioPhoneNumber,
     to,
     body,
   });
+  await Promise.allSettled([
+    incrementRateLimit(`sms:recipient:${to}`),
+    incrementRateLimit(`sms:day:${todayKey()}`),
+  ]);
 }
 
 export function reminderSchedulingStub() {
