@@ -274,8 +274,5 @@ export async function POST(request: Request) {
   // Look up lead session so we can send a personalised reschedule link
   const rescheduleLink = await buildRescheduleLink(nextAppt.client_phone);
 
-  return xmlResponse(
-    `Your appointment on ${nextAppt.date} at ${nextAppt.start_time.slice(0, 5)} has been cancelled. ` +
-    `To rebook at a time that suits you: ${rescheduleLink}`,
-  );
+  return xmlResponse(`Appointment cancelled. To rebook a better time: ${rescheduleLink}`);
 }
