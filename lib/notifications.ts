@@ -148,11 +148,6 @@ export function reminderSchedulingStub() {
 }
 
 type ReminderPayload = Pick<BookingPayload, "clientPhone" | "date" | "startTime" | "address">;
-type AbandonedLeadPayload = {
-  clientName: string;
-  clientPhone: string;
-  resumeLink: string;
-};
 
 export async function sendReminder24hSms(payload: ReminderPayload) {
   const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, at ${payload.address}.
@@ -161,6 +156,35 @@ Thomas' number is 07710597590 if needed.
 
 Reply CA by SMS if you need to cancel.`;
   await sendSms(payload.clientPhone, body);
+}
+
+type AbandonedLeadPayload = {
+  clientName: string;
+  clientPhone: string;
+  clientEmail: string;
+  resumeLink: string;
+};
+
+function abandonedLeadHtml(payload: AbandonedLeadPayload): string {
+  return emailShell(
+    "Complete your PureLuxe booking",
+    `
+    <h2 style="margin:0 0 14px 0;color:#171717;font-size:24px;">You're almost there!</h2>
+    <p style="margin:0 0 18px 0;color:#2f2f2f;line-height:1.6;">Hi ${payload.clientName}, you were very close to booking your free PureLuxe quote visit.</p>
+    <p style="margin:0 0 24px 0;color:#2f2f2f;line-height:1.6;">Click the button below to pick your preferred time — it only takes a moment.</p>
+    <a href="${payload.resumeLink}" style="display:inline-block;background:#d5b36a;color:#171717;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px;">Complete My Booking</a>
+  `,
+  );
+}
+
+export async function sendAbandonedLeadFollowUp(payload: AbandonedLeadPayload) {
+  const smsBody = `Hi ${payload.clientName}, you were very close to booking your free PureLuxe quote visit. Finish your booking here: ${payload.resumeLink}`;
+  await Promise.allSettled([
+    sendSms(payload.clientPhone, smsBody),
+    sendEmail(payload.clientEmail, "Complete your PureLuxe booking", smsBody, {
+      html: abandonedLeadHtml(payload),
+    }),
+  ]);
 }
 
 export async function sendAbandonedLeadSms(payload: AbandonedLeadPayload) {

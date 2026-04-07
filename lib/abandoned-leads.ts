@@ -1,7 +1,7 @@
 import { subMinutes } from "date-fns";
 import { geocodeAddress, isWithinServiceArea } from "@/lib/address";
 import { env } from "@/lib/env";
-import { sendAbandonedLeadSms } from "@/lib/notifications";
+import { sendAbandonedLeadFollowUp } from "@/lib/notifications";
 import { markAirtableAbandonedSmsSent } from "@/lib/airtable-sync";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDateInTimeZone } from "@/lib/time";
@@ -23,6 +23,7 @@ type LeadProgressRow = Record<string, unknown> & {
 type AbandonedTrackerRow = {
   lead_session_id: string;
   reminder_sent_at: string | null;
+  follow_up_2_sent_at: string | null;
   suppressed_reason: string | null;
   geocoded_out_of_area: boolean | null;
 };
@@ -88,7 +89,7 @@ async function loadExistingTrackers(sessionIds: string[]): Promise<Map<string, A
 
   const { data, error } = await supabaseAdmin
     .from("abandoned_followups")
-    .select("lead_session_id,reminder_sent_at,suppressed_reason,geocoded_out_of_area")
+    .select("lead_session_id,reminder_sent_at,follow_up_2_sent_at,suppressed_reason,geocoded_out_of_area")
     .in("lead_session_id", sessionIds);
 
   if (error) throw new Error(error.message);
@@ -119,6 +120,7 @@ async function upsertTracker(row: {
   last_activity_at: string;
   is_disqualified: boolean;
   reminder_sent_at?: string | null;
+  follow_up_2_sent_at?: string | null;
   suppressed_reason?: string | null;
   geocoded_out_of_area?: boolean | null;
 }) {
@@ -139,6 +141,7 @@ export async function runAbandonedLeadCheck(): Promise<{
   scanned: number;
   eligible: number;
   sent: number;
+  follow_up_2_sent: number;
   suppressed_booked: number;
   suppressed_disqualified: number;
   suppressed_out_of_area: number;
@@ -172,12 +175,14 @@ export async function runAbandonedLeadCheck(): Promise<{
 
   let eligible = 0;
   let sent = 0;
+  let followUp2Sent = 0;
   let suppressedBooked = 0;
   let suppressedDisqualified = 0;
   let suppressedOutOfArea = 0;
   let suppressedAlreadySent = 0;
   let suppressedInvalidPhone = 0;
   let sendFailed = 0;
+  const FOLLOW_UP_2_DELAY_MS = 24 * 60 * 60 * 1000;
   const postcodeAreaCache = new Map<string, boolean>(); // postcode → outOfArea
 
   for (const row of latestRows) {
@@ -223,20 +228,61 @@ export async function runAbandonedLeadCheck(): Promise<{
     }
 
     if (tracker?.reminder_sent_at) {
+      // First message already sent — check if we should send the second follow-up
+      if (!tracker.follow_up_2_sent_at) {
+        const firstSentAt = Date.parse(tracker.reminder_sent_at);
+        const readyForSecond = Date.now() - firstSentAt >= FOLLOW_UP_2_DELAY_MS;
+
+        if (readyForSecond) {
+          // Check they still haven't booked before sending second message
+          if (await hasUpcomingConfirmedBooking(clientPhone)) {
+            suppressedBooked += 1;
+            await upsertTracker({
+              lead_session_id: leadSessionId,
+              submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
+              client_name: clientName, client_phone: clientPhone, client_email: clientEmail,
+              postcode, current_step: currentStep, last_activity_at: lastActivityAt,
+              is_disqualified: false, suppressed_reason: "booked",
+              reminder_sent_at: tracker.reminder_sent_at,
+            });
+            continue;
+          }
+
+          try {
+            await sendAbandonedLeadFollowUp({
+              clientName, clientPhone, clientEmail,
+              resumeLink: buildResumeLink(leadSessionId),
+            });
+            await markAirtableAbandonedSmsSent(clientPhone, clientEmail);
+            const sentAt = new Date().toISOString();
+            await upsertTracker({
+              lead_session_id: leadSessionId,
+              submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
+              client_name: clientName, client_phone: clientPhone, client_email: clientEmail,
+              postcode, current_step: currentStep, last_activity_at: lastActivityAt,
+              is_disqualified: false, suppressed_reason: "already_sent",
+              reminder_sent_at: tracker.reminder_sent_at,
+              follow_up_2_sent_at: sentAt,
+            });
+            followUp2Sent += 1;
+          } catch (error) {
+            sendFailed += 1;
+            await upsertTracker({
+              lead_session_id: leadSessionId,
+              submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
+              client_name: clientName, client_phone: clientPhone, client_email: clientEmail,
+              postcode, current_step: currentStep, last_activity_at: lastActivityAt,
+              is_disqualified: false,
+              suppressed_reason: error instanceof Error ? `send_failed:${error.message}` : "send_failed",
+              reminder_sent_at: tracker.reminder_sent_at,
+            });
+          }
+          continue;
+        }
+      }
+
+      // Second already sent or 24h not yet elapsed — fully suppressed
       suppressedAlreadySent += 1;
-      await upsertTracker({
-        lead_session_id: leadSessionId,
-        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
-        client_name: clientName,
-        client_phone: clientPhone,
-        client_email: clientEmail,
-        postcode,
-        current_step: currentStep,
-        last_activity_at: lastActivityAt,
-        is_disqualified: isDisqualified(row),
-        reminder_sent_at: tracker.reminder_sent_at,
-        suppressed_reason: "already_sent",
-      });
       continue;
     }
 
@@ -324,9 +370,10 @@ export async function runAbandonedLeadCheck(): Promise<{
 
     eligible += 1;
     try {
-      await sendAbandonedLeadSms({
+      await sendAbandonedLeadFollowUp({
         clientName,
         clientPhone,
+        clientEmail,
         resumeLink: buildResumeLink(leadSessionId),
       });
 
@@ -368,6 +415,7 @@ export async function runAbandonedLeadCheck(): Promise<{
     scanned: latestRows.length,
     eligible,
     sent,
+    follow_up_2_sent: followUp2Sent,
     suppressed_booked: suppressedBooked,
     suppressed_disqualified: suppressedDisqualified,
     suppressed_out_of_area: suppressedOutOfArea,
