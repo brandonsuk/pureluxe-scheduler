@@ -5,7 +5,7 @@ import { cancelCalendarEvent, cancelCalendarEventByAppointmentId } from "@/lib/g
 import { sendCancellationNotifications } from "@/lib/notifications";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDate } from "@/lib/time";
-import { markAirtableAppointmentCancelled } from "@/lib/airtable-sync";
+import { markAirtableAppointmentCancelled, isAirtableInvalidPhonePending, updateAirtablePhoneNumber } from "@/lib/airtable-sync";
 
 type AppointmentRow = {
   id: string;
@@ -35,6 +35,16 @@ function commandIsCancel(content: string): boolean {
   return /\bCA\b/i.test(content);
 }
 
+/** Extract a UK mobile number from free text. Returns E.164 (+447...) or null. */
+function extractUkPhone(text: string): string | null {
+  const match = text.match(/(\+44\s*7|\b0\s*7)\d[\d\s\-]{8,10}/);
+  if (!match) return null;
+  const digits = match[0].replace(/\D/g, "");
+  if (digits.startsWith("07") && digits.length === 11) return `+44${digits.slice(1)}`;
+  if (digits.startsWith("447") && digits.length === 12) return `+${digits}`;
+  return null;
+}
+
 export async function POST(request: Request) {
   if (!resend || !env.resendWebhookSecret) {
     return jsonError("Resend inbound not configured", request, 500);
@@ -61,7 +71,20 @@ export async function POST(request: Request) {
   const html = (received.data.html || "").replace(/<[^>]*>/g, " ").trim();
   const combined = `${text}\n${html}`.trim();
 
-  if (!from || !commandIsCancel(combined)) {
+  if (!from) {
+    return jsonOk({ success: true, ignored: true, reason: "no_from" }, request);
+  }
+
+  // Phone number update reply: lead replies to our invalid-phone email with their new number
+  if (!commandIsCancel(combined)) {
+    const newPhone = extractUkPhone(combined);
+    if (newPhone) {
+      const pending = await isAirtableInvalidPhonePending(from);
+      if (pending) {
+        const updated = await updateAirtablePhoneNumber(from, newPhone);
+        return jsonOk({ success: true, phone_updated: updated, new_phone: newPhone }, request);
+      }
+    }
     return jsonOk({ success: true, ignored: true, reason: "no_ca_command" }, request);
   }
 
