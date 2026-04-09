@@ -1,5 +1,4 @@
 import { corsOptions } from "@/lib/cors";
-import { env } from "@/lib/env";
 import { jsonError, jsonOk } from "@/lib/http";
 import { markAirtableInvalidPhoneSent } from "@/lib/airtable-sync";
 import { sendInvalidPhoneEmail } from "@/lib/notifications";
@@ -9,14 +8,9 @@ export const OPTIONS = corsOptions;
 export async function POST(request: Request) {
   try {
     const body = (await request.json()) as {
-      admin_password?: string;
       name?: string;
       email?: string;
     };
-
-    if (!body.admin_password || body.admin_password !== env.adminPassword) {
-      return jsonError("Unauthorized", request, 401);
-    }
 
     const name = (body.name || "").trim();
     const email = (body.email || "").trim().toLowerCase();
