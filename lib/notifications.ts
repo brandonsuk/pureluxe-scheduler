@@ -289,22 +289,3 @@ export async function sendQualificationSms(payload: {
   const body = `We'd love to visit you for your free PureLuxe Bathroom consultation! Slots are now available, book one that suits you here: ${payload.bookingLink}`;
   await sendSms(payload.clientPhone, body);
 }
-
-function invalidPhoneHtml(clientName: string): string {
-  return emailShell(
-    "Your PureLuxe contact number",
-    `
-    <h2 style="margin:0 0 14px 0;color:#171717;font-size:24px;">We couldn't reach you</h2>
-    <p style="margin:0 0 18px 0;color:#2f2f2f;line-height:1.6;">Hi ${clientName}, we tried to call the phone number you provided but it doesn't appear to be a working UK mobile number.</p>
-    <p style="margin:0 0 18px 0;color:#2f2f2f;line-height:1.6;">Could you please <strong>reply to this email with your correct phone number</strong> so we can give you a call?</p>
-    <p style="margin:0;color:#2f2f2f;line-height:1.6;">Thanks,<br/>The PureLuxe Team</p>
-  `,
-  );
-}
-
-export async function sendInvalidPhoneEmail(payload: { clientName: string; clientEmail: string }) {
-  const text = `Hi ${payload.clientName},\n\nWe tried to reach you but the phone number you provided doesn't appear to be a working UK mobile.\n\nPlease reply to this email with your correct phone number so we can call you back.\n\nThanks,\nThe PureLuxe Team`;
-  await sendEmail(payload.clientEmail, "Your PureLuxe contact number", text, {
-    html: invalidPhoneHtml(payload.clientName),
-  });
-}
