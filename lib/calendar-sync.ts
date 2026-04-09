@@ -84,12 +84,21 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
       start!.time === normalizeDbTime(appt.start_time) &&
       end!.time === normalizeDbTime(appt.end_time);
 
-    const state = snapshot.status === "cancelled" || !matchesTime ? "out_of_sync" : "in_sync";
+    const isCancelled = snapshot.status === "cancelled";
+    const state = isCancelled || !matchesTime ? "out_of_sync" : "in_sync";
     if (state === "out_of_sync") outOfSync += 1;
+
+    // If the time moved in Google Calendar, update Supabase to match so
+    // the slot is blocked at the new time and the old time becomes bookable.
+    const timeUpdate =
+      !isCancelled && !matchesTime && start && end
+        ? { date: start.date, start_time: start.time, end_time: end.time }
+        : {};
 
     await supabaseAdmin
       .from("appointments")
       .update({
+        ...timeUpdate,
         calendar_sync_state: state,
         calendar_last_status: snapshot.status,
         calendar_last_start: snapshot.startDateTime,
