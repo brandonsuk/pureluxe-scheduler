@@ -1,6 +1,6 @@
 import { addDays, format } from "date-fns";
 import { env } from "@/lib/env";
-import { sendReminder24hSms } from "@/lib/notifications";
+import { sendReminder24h } from "@/lib/notifications";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDateInTimeZone, zonedDateTimeKey, zonedNowKey } from "@/lib/time";
 
@@ -8,6 +8,8 @@ type ReminderAppointment = {
   id: string;
   date: string;
   start_time: string;
+  client_name: string;
+  client_email: string;
   client_phone: string;
   address: string;
   reminder_24h_sent_at: string | null;
@@ -28,7 +30,7 @@ export async function runReminderCheck(): Promise<{
 
   const { data, error } = await supabaseAdmin
     .from("appointments")
-    .select("id,date,start_time,client_phone,address,reminder_24h_sent_at,reminder_2h_sent_at")
+    .select("id,date,start_time,client_name,client_email,client_phone,address,reminder_24h_sent_at,reminder_2h_sent_at")
     .eq("status", "confirmed")
     .gte("date", startDate)
     .lte("date", endDate)
@@ -46,7 +48,9 @@ export async function runReminderCheck(): Promise<{
     const diffMins = Math.round((appointmentKey - nowKey) / 60000);
 
     if (!appt.reminder_24h_sent_at && inWindow(diffMins, 24 * 60)) {
-      await sendReminder24hSms({
+      await sendReminder24h({
+        clientName: appt.client_name,
+        clientEmail: appt.client_email,
         clientPhone: appt.client_phone,
         date: appt.date,
         startTime: appt.start_time.slice(0, 5),

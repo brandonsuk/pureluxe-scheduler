@@ -236,9 +236,49 @@ export function reminderSchedulingStub() {
   return { status: "not_implemented" as const };
 }
 
-type ReminderPayload = Pick<BookingPayload, "clientPhone" | "date" | "startTime" | "address">;
+type ReminderPayload = {
+  clientName: string;
+  clientEmail: string;
+  clientPhone: string;
+  date: string;
+  startTime: string;
+  address: string;
+};
 
-export async function sendReminder24hSms(payload: ReminderPayload) {
+function reminder24hHtml(payload: ReminderPayload): string {
+  return emailShell(
+    "Reminder: Your PureLuxe Visit Tomorrow",
+    `
+    <h2 style="margin:0 0 14px 0;color:#171717;font-size:24px;">Your quote visit is tomorrow</h2>
+    <p style="margin:0 0 18px 0;color:#2f2f2f;line-height:1.6;">Hi ${payload.clientName}, just a reminder that Thomas will be visiting you tomorrow.</p>
+    <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #ece3d0;border-radius:10px;background:#fffcf6;">
+      <tr><td style="padding:14px 16px;">
+        <p style="margin:0 0 8px 0;"><strong>Date:</strong> ${payload.date}</p>
+        <p style="margin:0 0 8px 0;"><strong>Time:</strong> ${payload.startTime}</p>
+        <p style="margin:0;"><strong>Address:</strong> ${payload.address}</p>
+      </td></tr>
+    </table>
+    <p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Thomas' number is <strong>07710597590</strong> if you need to reach him. Reply <strong>CA</strong> to cancel.</p>
+  `,
+  );
+}
+
+export async function sendReminder24h(payload: ReminderPayload) {
+  const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, at ${payload.address}.
+
+Thomas' number is 07710597590 if needed.
+
+Reply CA by SMS if you need to cancel.`;
+  await Promise.allSettled([
+    sendSms(payload.clientPhone, body),
+    sendEmail(payload.clientEmail, "Reminder: Your PureLuxe Visit Tomorrow", body, {
+      html: reminder24hHtml(payload),
+    }),
+  ]);
+}
+
+/** @deprecated use sendReminder24h */
+export async function sendReminder24hSms(payload: Pick<ReminderPayload, "clientPhone" | "date" | "startTime" | "address">) {
   const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, at ${payload.address}.
 
 Thomas' number is 07710597590 if needed.
