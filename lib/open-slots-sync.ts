@@ -1,5 +1,4 @@
 import { addDays, format, subDays } from "date-fns";
-import { geocodeAddress } from "@/lib/address";
 import { env } from "@/lib/env";
 import { listCalendarEvents } from "@/lib/google-calendar";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -9,11 +8,8 @@ type SyncResult = {
   window_end: string;
   scanned: number;
   matched_open_slots: number;
-  matched_blocking_events: number;
   imported: number;
-  imported_blockers: number;
   skipped: number;
-  skipped_blockers: number;
 };
 
 type TimeParts = {
@@ -71,31 +67,6 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
   const startDate = format(windowStart, "yyyy-MM-dd");
   const endDate = format(windowEnd, "yyyy-MM-dd");
 
-  const { data: existingAppointments, error: existingAppointmentsError } = await supabaseAdmin
-    .from("appointments")
-    .select("google_event_id")
-    .not("google_event_id", "is", null)
-    .gte("date", startDate)
-    .lte("date", endDate);
-  if (existingAppointmentsError) throw new Error(existingAppointmentsError.message);
-
-  const appointmentEventIds = new Set(
-    (existingAppointments || [])
-      .map((row) => row.google_event_id)
-      .filter((value): value is string => typeof value === "string" && value.length > 0),
-  );
-
-  // Pre-load existing blocker coords so we don't re-geocode events we've already seen
-  const { data: existingBlockers } = await supabaseAdmin
-    .from("calendar_blockers")
-    .select("google_event_id,lat,lng")
-    .gte("date", startDate)
-    .lte("date", endDate);
-  const existingBlockerCoords = new Map<string, { lat: number; lng: number }>();
-  for (const b of existingBlockers || []) {
-    existingBlockerCoords.set(b.google_event_id, { lat: b.lat, lng: b.lng });
-  }
-
   const rows: Array<{
     date: string;
     start_time: string;
@@ -104,105 +75,28 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     source: "google_open_slots";
     google_event_id: string;
   }> = [];
-  const blockerRows: Array<{
-    google_event_id: string;
-    summary: string;
-    address: string;
-    lat: number;
-    lng: number;
-    date: string;
-    start_time: string;
-    end_time: string;
-  }> = [];
   let skipped = 0;
-  let skippedBlockers = 0;
   let matchedOpenSlots = 0;
-  let matchedBlockingEvents = 0;
-  const geocodeCache = new Map<string, { lat: number; lng: number }>();
 
   for (const event of events) {
     if (event.status === "cancelled") continue;
+    if (!/open slots?/i.test(event.summary || "")) continue;
 
+    matchedOpenSlots += 1;
     const start = formatInTimezone(event.startDateTime, env.googleCalendarTimezone);
     const end = formatInTimezone(event.endDateTime, env.googleCalendarTimezone);
-    if (!start || !end) {
-      continue;
-    }
-    const isOpenSlot = /open slots?/i.test(event.summary || "");
-    if (isOpenSlot) {
-      matchedOpenSlots += 1;
-      if (start.date !== end.date) {
-        skipped += 1;
-        continue;
-      }
-      if (toMinuteOfDay(end.time) <= toMinuteOfDay(start.time)) {
-        skipped += 1;
-        continue;
-      }
-
-      rows.push({
-        date: start.date,
-        start_time: start.time,
-        end_time: end.time,
-        is_available: true,
-        source: "google_open_slots",
-        google_event_id: event.id,
-      });
+    if (!start || !end || start.date !== end.date || toMinuteOfDay(end.time) <= toMinuteOfDay(start.time)) {
+      skipped += 1;
       continue;
     }
 
-    matchedBlockingEvents += 1;
-    if (appointmentEventIds.has(event.id) || /appointment id:/i.test(event.description || "")) {
-      skippedBlockers += 1;
-      continue;
-    }
-    if (start.date !== end.date) {
-      skippedBlockers += 1;
-      continue;
-    }
-    if (toMinuteOfDay(end.time) <= toMinuteOfDay(start.time)) {
-      skippedBlockers += 1;
-      continue;
-    }
-
-    const location = event.location?.trim() || "";
-    let coords: { lat: number; lng: number };
-
-    if (location) {
-      // Reuse previously geocoded coords if we have them — avoids repeat Loqate calls
-      const existing = existingBlockerCoords.get(event.id);
-      if (existing) {
-        coords = existing;
-        geocodeCache.set(location, existing);
-      } else {
-        let cached = geocodeCache.get(location);
-        if (!cached) {
-          try {
-            const geo = await geocodeAddress(location);
-            cached = { lat: geo.lat, lng: geo.lng };
-            geocodeCache.set(location, cached);
-          } catch {
-            // Geocoding failed — fall back to home base so the time block is still respected
-            cached = { lat: env.homeBaseLat, lng: env.homeBaseLng };
-            geocodeCache.set(location, cached);
-          }
-        }
-        coords = cached;
-      }
-    } else {
-      // No location on the event — use home base so the time is still blocked
-      coords = { lat: env.homeBaseLat, lng: env.homeBaseLng };
-    }
-
-    blockerRows.push({
-      google_event_id: event.id,
-      summary: event.summary || "Calendar blocker",
-      address: location || "Unknown",
-      lat: coords.lat,
-      lng: coords.lng,
+    rows.push({
       date: start.date,
       start_time: start.time,
       end_time: end.time,
+      is_available: true,
+      source: "google_open_slots",
+      google_event_id: event.id,
     });
   }
 
@@ -214,13 +108,6 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     .lte("date", endDate);
   if (deleteError) throw new Error(deleteError.message);
 
-  const { error: deleteBlockersError } = await supabaseAdmin
-    .from("calendar_blockers")
-    .delete()
-    .gte("date", startDate)
-    .lte("date", endDate);
-  if (deleteBlockersError) throw new Error(deleteBlockersError.message);
-
   if (rows.length) {
     const { error: upsertError } = await supabaseAdmin
       .from("working_hour_windows")
@@ -228,22 +115,12 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     if (upsertError) throw new Error(upsertError.message);
   }
 
-  if (blockerRows.length) {
-    const { error: upsertBlockersError } = await supabaseAdmin
-      .from("calendar_blockers")
-      .upsert(blockerRows, { onConflict: "google_event_id" });
-    if (upsertBlockersError) throw new Error(upsertBlockersError.message);
-  }
-
   return {
     window_start: startDate,
     window_end: endDate,
     scanned: events.length,
     matched_open_slots: matchedOpenSlots,
-    matched_blocking_events: matchedBlockingEvents,
     imported: rows.length,
-    imported_blockers: blockerRows.length,
     skipped,
-    skipped_blockers: skippedBlockers,
   };
 }
