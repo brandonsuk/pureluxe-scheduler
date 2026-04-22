@@ -2,7 +2,7 @@ import { Resend } from "resend";
 import { env } from "@/lib/env";
 import { jsonError, jsonOk } from "@/lib/http";
 import { cancelCalendarEvent, cancelCalendarEventByAppointmentId } from "@/lib/google-calendar";
-import { sendCancellationNotifications } from "@/lib/notifications";
+import { sendCancellationNotifications, sendRescheduleInvite } from "@/lib/notifications";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDate } from "@/lib/time";
 import { markAirtableAppointmentCancelled } from "@/lib/airtable-sync";
@@ -11,8 +11,10 @@ type AppointmentRow = {
   id: string;
   date: string;
   start_time: string;
+  client_name: string;
   client_email: string;
   client_phone: string;
+  address: string;
   google_event_id: string | null;
 };
 
@@ -67,7 +69,7 @@ export async function POST(request: Request) {
 
   const { data: appointments, error } = await supabaseAdmin
     .from("appointments")
-    .select("id,date,start_time,client_email,client_phone,google_event_id")
+    .select("id,date,start_time,client_name,client_email,client_phone,address,google_event_id")
     .eq("status", "confirmed")
     .gte("date", todayIsoDate())
     .ilike("client_email", from)
@@ -112,6 +114,14 @@ export async function POST(request: Request) {
     },
     { sendSms: false },
   );
+
+  // Send reschedule invite via SMS + email with details pre-filled
+  sendRescheduleInvite({
+    clientName: appointment.client_name || "there",
+    clientEmail: appointment.client_email,
+    clientPhone: appointment.client_phone,
+    address: appointment.address,
+  }).catch(() => {});
 
   return jsonOk({ success: true, cancelled: true, appointment_id: appointment.id }, request);
 }

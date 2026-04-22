@@ -1,7 +1,7 @@
 import twilio from "twilio";
 import { env } from "@/lib/env";
 import { cancelCalendarEvent, cancelCalendarEventByAppointmentId, createCalendarEvent } from "@/lib/google-calendar";
-import { sendCancellationNotifications } from "@/lib/notifications";
+import { sendCancellationNotifications, sendRescheduleInvite } from "@/lib/notifications";
 import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
 import { addMins, todayIsoDate } from "@/lib/time";
@@ -67,24 +67,6 @@ function parseBody(formBody: string): Record<string, string> {
   return out;
 }
 
-async function buildRescheduleLink(clientPhone: string): Promise<string> {
-  const base = env.funnelBaseUrl.replace(/\/$/, "");
-  try {
-    const { data } = await supabaseAdmin
-      .from("abandoned_followups")
-      .select("lead_session_id")
-      .eq("client_phone", clientPhone)
-      .order("updated_at", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    if (data?.lead_session_id) {
-      return `${base}/resume?session=${encodeURIComponent(data.lead_session_id)}`;
-    }
-  } catch {
-    // fall through to plain link
-  }
-  return base;
-}
 
 function commandIsCancel(body: string): boolean {
   return /\bCA\b/i.test(body);
@@ -216,7 +198,7 @@ export async function POST(request: Request) {
 
   const { data: appointments, error } = await supabaseAdmin
     .from("appointments")
-    .select("id,date,start_time,client_email,client_phone,google_event_id")
+    .select("id,date,start_time,client_name,client_email,client_phone,address,google_event_id")
     .eq("status", "confirmed")
     .gte("date", today)
     .in("client_phone", numbers);
@@ -271,8 +253,22 @@ export async function POST(request: Request) {
     startTime: nextAppt.start_time,
   }, { sendSms: false });
 
-  // Look up lead session so we can send a personalised reschedule link
-  const rescheduleLink = await buildRescheduleLink(nextAppt.client_phone);
+  // Send reschedule invite email (SMS is handled by the Twilio XML reply below)
+  sendRescheduleInvite({
+    clientName: nextAppt.client_name || "there",
+    clientEmail: nextAppt.client_email,
+    clientPhone: nextAppt.client_phone,
+    address: nextAppt.address,
+  }, { sendSms: false }).catch(() => {});
 
-  return xmlResponse(`Appointment cancelled. To rebook a better time: ${rescheduleLink}`);
+  const rescheduleParams = new URLSearchParams({
+    name: nextAppt.client_name || "",
+    phone: nextAppt.client_phone,
+    email: nextAppt.client_email,
+    qualified: "1",
+    ...(nextAppt.address ? { address: nextAppt.address } : {}),
+  });
+  const rescheduleLink = `${env.funnelBaseUrl}/book?${rescheduleParams.toString()}`;
+
+  return xmlResponse(`Appointment cancelled. To rebook at a better time — your details are saved: ${rescheduleLink}`);
 }

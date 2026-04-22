@@ -342,3 +342,32 @@ export async function sendQualificationSms(payload: {
     ...(payload.clientEmail ? [sendEmail(payload.clientEmail, "Your PureLuxe Booking Slots Are Ready", body, { html: htmlBody })] : []),
   ]);
 }
+
+export async function sendRescheduleInvite(
+  payload: { clientName: string; clientEmail: string; clientPhone: string; address?: string },
+  options?: { sendSms?: boolean },
+) {
+  const params = new URLSearchParams({
+    name: payload.clientName,
+    phone: payload.clientPhone,
+    email: payload.clientEmail,
+    qualified: "1",
+    ...(payload.address ? { address: payload.address } : {}),
+  });
+  const bookingLink = `${env.funnelBaseUrl}/book?${params.toString()}`;
+  const smsBody = `You can rebook your PureLuxe visit here — your details are already saved: ${bookingLink}`;
+  const htmlBody = emailShell(
+    "Rebook Your PureLuxe Visit",
+    `
+    <h2 style="margin:0 0 14px 0;color:#171717;font-size:24px;">Rebook at a time that suits you</h2>
+    <p style="margin:0 0 18px 0;color:#2f2f2f;line-height:1.6;">Hi ${payload.clientName}, your appointment has been cancelled. If you'd like to rebook, click below — your details are already saved.</p>
+    <a href="${bookingLink}" style="display:inline-block;background:#d5b36a;color:#171717;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px;">Rebook My Visit</a>
+    <p style="margin:16px 0 0 0;color:#5f5a4f;font-size:13px;">Or copy this link: ${bookingLink}</p>
+  `,
+  );
+  const sendSmsEnabled = options?.sendSms ?? true;
+  await Promise.allSettled([
+    ...(sendSmsEnabled ? [sendSms(payload.clientPhone, smsBody)] : []),
+    sendEmail(payload.clientEmail, "Rebook Your PureLuxe Visit", smsBody, { html: htmlBody }),
+  ]);
+}
