@@ -12,7 +12,7 @@ export async function POST(request: Request) {
     if (!name || !phone) return jsonError("name and phone required", request, 422);
 
     const params = new URLSearchParams({ name, phone, ...(postcode ? { postcode } : {}) });
-    const bookingLink = `${env.appUrl}/book?${params.toString()}`;
+    const bookingLink = `${env.funnelBaseUrl}/book?${params.toString()}`;
 
     await sendQualificationSms({ clientName: name, clientPhone: phone, bookingLink });
     return jsonOk({ ok: true }, request);
