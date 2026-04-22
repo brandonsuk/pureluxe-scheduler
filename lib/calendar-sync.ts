@@ -2,6 +2,7 @@ import { format } from "date-fns";
 import { env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase";
 import { cancelCalendarEvent, getCalendarEventSnapshot, updateCalendarEventTime } from "@/lib/google-calendar";
+import { markAirtableAppointmentBooked } from "@/lib/airtable-sync";
 
 const MAX_SYNC_DURATION_MS = 4 * 60 * 60 * 1000; // 4 hours — guardrail to skip personal/job events
 
@@ -36,7 +37,7 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
   const today = format(new Date(), "yyyy-MM-dd");
   const { data: appointments, error } = await supabaseAdmin
     .from("appointments")
-    .select("id,date,start_time,end_time,google_event_id,thomas_event_id")
+    .select("id,date,start_time,end_time,google_event_id,thomas_event_id,client_phone,client_email")
     .eq("status", "confirmed")
     .gte("date", today)
     .limit(limit);
@@ -91,7 +92,7 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
           }
 
           if (thomasTimeChanged && thomasStart && thomasEnd) {
-            // Thomas moved the appointment — update Supabase and mirror to self-booking calendar
+            // Thomas moved the appointment — update Supabase, Airtable, and self-booking calendar
             await supabaseAdmin
               .from("appointments")
               .update({
@@ -105,6 +106,11 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
                 calendar_last_checked_at: new Date().toISOString(),
               })
               .eq("id", appt.id);
+            if (appt.client_phone && appt.client_email) {
+              markAirtableAppointmentBooked(appt.client_phone, appt.client_email, thomasStart.date, thomasStart.time).catch((e) => {
+                console.error("thomas_sync_airtable_reschedule_failed", e);
+              });
+            }
             if (appt.google_event_id) {
               await updateCalendarEventTime(
                 env.googleCalendarId,
@@ -171,16 +177,23 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
         ? { date: start.date, start_time: start.time, end_time: end.time }
         : {};
 
-    if (!isCancelled && !matchesTime && start && end && appt.thomas_event_id && env.googleOpenSlotsCalendarId) {
-      await updateCalendarEventTime(
-        env.googleOpenSlotsCalendarId,
-        appt.thomas_event_id,
-        start.date,
-        start.time,
-        end.time,
-      ).catch((e) => {
-        console.error("gcal_sync_update_thomas_cal_failed", e);
-      });
+    if (!isCancelled && !matchesTime && start && end) {
+      if (appt.client_phone && appt.client_email) {
+        markAirtableAppointmentBooked(appt.client_phone, appt.client_email, start.date, start.time).catch((e) => {
+          console.error("gcal_sync_airtable_reschedule_failed", e);
+        });
+      }
+      if (appt.thomas_event_id && env.googleOpenSlotsCalendarId) {
+        await updateCalendarEventTime(
+          env.googleOpenSlotsCalendarId,
+          appt.thomas_event_id,
+          start.date,
+          start.time,
+          end.time,
+        ).catch((e) => {
+          console.error("gcal_sync_update_thomas_cal_failed", e);
+        });
+      }
     }
 
     await supabaseAdmin
