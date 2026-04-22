@@ -11,7 +11,7 @@ export async function POST(request: Request) {
     if (admin_password !== env.adminPassword) return jsonError("Unauthorised", request, 401);
     if (!name || !phone) return jsonError("name and phone required", request, 422);
 
-    const params = new URLSearchParams({ name, phone, qualified: "1", ...(postcode ? { postcode } : {}) });
+    const params = new URLSearchParams({ name, phone, qualified: "1", ...(postcode ? { address: postcode } : {}) });
     const bookingLink = `${env.funnelBaseUrl}/book?${params.toString()}`;
 
     await sendQualificationSms({ clientName: name, clientPhone: phone, bookingLink });
