@@ -14,7 +14,7 @@ export async function POST(request: Request) {
     const params = new URLSearchParams({ name, phone, qualified: "1", ...(email ? { email } : {}), ...(postcode ? { address: postcode } : {}) });
     const bookingLink = `${env.funnelBaseUrl}/book?${params.toString()}`;
 
-    await sendQualificationSms({ clientName: name, clientPhone: phone, bookingLink });
+    await sendQualificationSms({ clientName: name, clientPhone: phone, clientEmail: email || undefined, bookingLink });
     return jsonOk({ ok: true }, request);
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Unexpected error", request, 500);

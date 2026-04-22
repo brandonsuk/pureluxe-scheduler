@@ -324,8 +324,21 @@ export async function sendAbandonedLeadSms(payload: AbandonedLeadPayload) {
 export async function sendQualificationSms(payload: {
   clientName: string;
   clientPhone: string;
+  clientEmail?: string;
   bookingLink: string;
 }) {
   const body = `We'd love to visit you for your free PureLuxe Bathroom consultation! Slots are now available, book one that suits you here: ${payload.bookingLink}`;
-  await sendSms(payload.clientPhone, body);
+  const htmlBody = emailShell(
+    "Your PureLuxe Booking Slots Are Ready",
+    `
+    <h2 style="margin:0 0 14px 0;color:#171717;font-size:24px;">Slots are available for you</h2>
+    <p style="margin:0 0 18px 0;color:#2f2f2f;line-height:1.6;">Hi ${payload.clientName}, we'd love to visit you for your free PureLuxe Bathroom consultation. Click below to pick a time that suits you.</p>
+    <a href="${payload.bookingLink}" style="display:inline-block;background:#d5b36a;color:#171717;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px;">Book My Free Visit</a>
+    <p style="margin:16px 0 0 0;color:#5f5a4f;font-size:13px;">Or copy this link: ${payload.bookingLink}</p>
+  `,
+  );
+  await Promise.allSettled([
+    sendSms(payload.clientPhone, body),
+    ...(payload.clientEmail ? [sendEmail(payload.clientEmail, "Your PureLuxe Booking Slots Are Ready", body, { html: htmlBody })] : []),
+  ]);
 }
