@@ -76,7 +76,7 @@ export async function POST(request: Request) {
     const today = new Date().toISOString().slice(0, 10);
     const { data: existingBookings } = await supabaseAdmin
       .from("appointments")
-      .select("id, google_event_id")
+      .select("id, google_event_id, thomas_event_id")
       .eq("status", "confirmed")
       .gte("date", today)
       .or(`client_phone.eq.${payload.client_phone},client_email.eq.${payload.client_email}`);
@@ -84,10 +84,15 @@ export async function POST(request: Request) {
     if (existingBookings && existingBookings.length > 0) {
       const ids = existingBookings.map((b: { id: string }) => b.id);
       await supabaseAdmin.from("appointments").update({ status: "cancelled" }).in("id", ids);
-      for (const booking of existingBookings as { id: string; google_event_id?: string | null }[]) {
+      for (const booking of existingBookings as { id: string; google_event_id?: string | null; thomas_event_id?: string | null }[]) {
         if (booking.google_event_id) {
           await cancelCalendarEvent(booking.google_event_id).catch((e) => {
             console.error("book_cancel_old_gcal_failed", e);
+          });
+        }
+        if (booking.thomas_event_id && env.googleOpenSlotsCalendarId) {
+          await cancelCalendarEvent(booking.thomas_event_id, env.googleOpenSlotsCalendarId).catch((e) => {
+            console.error("book_cancel_old_thomas_cal_failed", e);
           });
         }
       }
@@ -126,29 +131,47 @@ export async function POST(request: Request) {
     });
 
     let googleEventId: string | null = null;
-    try {
-      googleEventId = await createCalendarEvent({
-        appointmentId: data.id,
-        date: payload.date,
-        startTime: payload.start_time,
-        endTime,
-        clientName: payload.client_name,
-        clientPhone: payload.client_phone,
-        clientEmail: payload.client_email,
-        address: payload.address,
-        readinessLevel: payload.readiness_display || payload.readiness_level,
-        durationMins: payload.duration_mins,
-        renovationType: payload.renovation_type,
-        wallType: payload.wall_type,
-        budget: payload.budget,
-      });
+    let thomasEventId: string | null = null;
+    const calendarInput = {
+      appointmentId: data.id,
+      date: payload.date,
+      startTime: payload.start_time,
+      endTime,
+      clientName: payload.client_name,
+      clientPhone: payload.client_phone,
+      clientEmail: payload.client_email,
+      address: payload.address,
+      readinessLevel: payload.readiness_display || payload.readiness_level,
+      durationMins: payload.duration_mins,
+      renovationType: payload.renovation_type,
+      wallType: payload.wall_type,
+      budget: payload.budget,
+    };
 
-      if (googleEventId) {
-        await supabaseAdmin.from("appointments").update({ google_event_id: googleEventId }).eq("id", data.id);
-      }
+    try {
+      googleEventId = await createCalendarEvent(calendarInput);
     } catch (calendarError) {
       // eslint-disable-next-line no-console
       console.error("google_calendar_create_failed", calendarError);
+    }
+
+    if (env.googleOpenSlotsCalendarId) {
+      try {
+        thomasEventId = await createCalendarEvent(calendarInput, env.googleOpenSlotsCalendarId);
+      } catch (calendarError) {
+        // eslint-disable-next-line no-console
+        console.error("thomas_calendar_create_failed", calendarError);
+      }
+    }
+
+    if (googleEventId || thomasEventId) {
+      await supabaseAdmin
+        .from("appointments")
+        .update({
+          ...(googleEventId ? { google_event_id: googleEventId } : {}),
+          ...(thomasEventId ? { thomas_event_id: thomasEventId } : {}),
+        })
+        .eq("id", data.id);
     }
 
     await sendBookingNotifications({
@@ -171,6 +194,7 @@ export async function POST(request: Request) {
           time: data.start_time,
         },
         google_calendar_synced: Boolean(googleEventId),
+        thomas_calendar_synced: Boolean(thomasEventId),
       },
       request,
     );

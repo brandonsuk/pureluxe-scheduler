@@ -16,6 +16,7 @@ type AppointmentRow = {
   client_phone: string;
   address: string;
   google_event_id: string | null;
+  thomas_event_id?: string | null;
 };
 
 type ResendEmailReceivedEvent = {
@@ -69,7 +70,7 @@ export async function POST(request: Request) {
 
   const { data: appointments, error } = await supabaseAdmin
     .from("appointments")
-    .select("id,date,start_time,client_name,client_email,client_phone,address,google_event_id")
+    .select("id,date,start_time,client_name,client_email,client_phone,address,google_event_id,thomas_event_id")
     .eq("status", "confirmed")
     .gte("date", todayIsoDate())
     .ilike("client_email", from)
@@ -99,6 +100,9 @@ export async function POST(request: Request) {
       await cancelCalendarEvent(appointment.google_event_id);
     } else {
       await cancelCalendarEventByAppointmentId(appointment.id);
+    }
+    if (appointment.thomas_event_id && env.googleOpenSlotsCalendarId) {
+      await cancelCalendarEvent(appointment.thomas_event_id, env.googleOpenSlotsCalendarId);
     }
   } catch (calendarError) {
     // eslint-disable-next-line no-console

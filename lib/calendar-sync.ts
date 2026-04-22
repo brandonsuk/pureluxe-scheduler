@@ -1,7 +1,9 @@
 import { format } from "date-fns";
 import { env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase";
-import { getCalendarEventSnapshot } from "@/lib/google-calendar";
+import { cancelCalendarEvent, getCalendarEventSnapshot, updateCalendarEventTime } from "@/lib/google-calendar";
+
+const MAX_SYNC_DURATION_MS = 4 * 60 * 60 * 1000; // 4 hours — guardrail to skip personal/job events
 
 function formatInTimezone(iso: string | null, timeZone: string): { date: string; time: string } | null {
   if (!iso) return null;
@@ -34,7 +36,7 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
   const today = format(new Date(), "yyyy-MM-dd");
   const { data: appointments, error } = await supabaseAdmin
     .from("appointments")
-    .select("id,date,start_time,end_time,google_event_id")
+    .select("id,date,start_time,end_time,google_event_id,thomas_event_id")
     .eq("status", "confirmed")
     .gte("date", today)
     .limit(limit);
@@ -48,6 +50,80 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
   for (const appt of appointments || []) {
     checked += 1;
 
+    // --- Check Thomas's PureLuxe calendar first (authoritative for time edits) ---
+    // Guardrails: event must have a location and be <4 hours so personal/job events are ignored.
+    if (appt.thomas_event_id && env.googleOpenSlotsCalendarId) {
+      const thomasSnapshot = await getCalendarEventSnapshot(appt.thomas_event_id, env.googleOpenSlotsCalendarId);
+
+      if (thomasSnapshot.exists) {
+        const hasLocation = Boolean(thomasSnapshot.location);
+        const withinDuration =
+          thomasSnapshot.durationMs === null || thomasSnapshot.durationMs === undefined
+            ? true
+            : thomasSnapshot.durationMs < MAX_SYNC_DURATION_MS;
+
+        if (hasLocation && withinDuration) {
+          const thomasCancelled = thomasSnapshot.status === "cancelled";
+          const thomasStart = formatInTimezone(thomasSnapshot.startDateTime, env.googleCalendarTimezone);
+          const thomasEnd = formatInTimezone(thomasSnapshot.endDateTime, env.googleCalendarTimezone);
+          const thomasTimeChanged =
+            Boolean(thomasStart && thomasEnd) &&
+            (thomasStart!.date !== appt.date ||
+              thomasStart!.time !== normalizeDbTime(appt.start_time) ||
+              thomasEnd!.time !== normalizeDbTime(appt.end_time));
+
+          if (thomasCancelled) {
+            // Thomas deleted the event — cancel in Supabase and on the self-booking calendar
+            await supabaseAdmin
+              .from("appointments")
+              .update({
+                status: "cancelled",
+                calendar_sync_state: "missing",
+                calendar_last_status: "cancelled",
+                calendar_last_checked_at: new Date().toISOString(),
+              })
+              .eq("id", appt.id);
+            await cancelCalendarEvent(appt.google_event_id).catch((e) => {
+              console.error("thomas_sync_cancel_gcal_failed", e);
+            });
+            outOfSync += 1;
+            continue;
+          }
+
+          if (thomasTimeChanged && thomasStart && thomasEnd) {
+            // Thomas moved the appointment — update Supabase and mirror to self-booking calendar
+            await supabaseAdmin
+              .from("appointments")
+              .update({
+                date: thomasStart.date,
+                start_time: thomasStart.time,
+                end_time: thomasEnd.time,
+                calendar_sync_state: "in_sync",
+                calendar_last_status: thomasSnapshot.status,
+                calendar_last_start: thomasSnapshot.startDateTime,
+                calendar_last_end: thomasSnapshot.endDateTime,
+                calendar_last_checked_at: new Date().toISOString(),
+              })
+              .eq("id", appt.id);
+            if (appt.google_event_id) {
+              await updateCalendarEventTime(
+                env.googleCalendarId,
+                appt.google_event_id,
+                thomasStart.date,
+                thomasStart.time,
+                thomasEnd.time,
+              ).catch((e) => {
+                console.error("thomas_sync_update_gcal_failed", e);
+              });
+            }
+            outOfSync += 1;
+            continue;
+          }
+        }
+      }
+    }
+
+    // --- Check self-booking calendar (google_event_id) ---
     if (!appt.google_event_id) {
       missing += 1;
       await supabaseAdmin
@@ -88,12 +164,24 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
     const state = isCancelled || !matchesTime ? "out_of_sync" : "in_sync";
     if (state === "out_of_sync") outOfSync += 1;
 
-    // If the time moved in Google Calendar, update Supabase to match so
-    // the slot is blocked at the new time and the old time becomes bookable.
+    // If the time moved in the self-booking calendar, update Supabase to match.
+    // Also mirror the change to Thomas's calendar so both stay in sync.
     const timeUpdate =
       !isCancelled && !matchesTime && start && end
         ? { date: start.date, start_time: start.time, end_time: end.time }
         : {};
+
+    if (!isCancelled && !matchesTime && start && end && appt.thomas_event_id && env.googleOpenSlotsCalendarId) {
+      await updateCalendarEventTime(
+        env.googleOpenSlotsCalendarId,
+        appt.thomas_event_id,
+        start.date,
+        start.time,
+        end.time,
+      ).catch((e) => {
+        console.error("gcal_sync_update_thomas_cal_failed", e);
+      });
+    }
 
     await supabaseAdmin
       .from("appointments")

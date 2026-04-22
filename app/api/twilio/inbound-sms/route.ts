@@ -21,6 +21,7 @@ type AppointmentRow = {
   lng?: number;
   readiness_level?: string;
   google_event_id: string | null;
+  thomas_event_id?: string | null;
 };
 
 function xmlResponse(message: string, status = 200): Response {
@@ -198,7 +199,7 @@ export async function POST(request: Request) {
 
   const { data: appointments, error } = await supabaseAdmin
     .from("appointments")
-    .select("id,date,start_time,client_name,client_email,client_phone,address,google_event_id")
+    .select("id,date,start_time,client_name,client_email,client_phone,address,google_event_id,thomas_event_id")
     .eq("status", "confirmed")
     .gte("date", today)
     .in("client_phone", numbers);
@@ -240,6 +241,9 @@ export async function POST(request: Request) {
       await cancelCalendarEvent(nextAppt.google_event_id);
     } else {
       await cancelCalendarEventByAppointmentId(nextAppt.id);
+    }
+    if (nextAppt.thomas_event_id && env.googleOpenSlotsCalendarId) {
+      await cancelCalendarEvent(nextAppt.thomas_event_id, env.googleOpenSlotsCalendarId);
     }
   } catch (calendarError) {
     // eslint-disable-next-line no-console

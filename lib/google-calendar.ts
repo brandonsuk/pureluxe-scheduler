@@ -59,6 +59,8 @@ export type CalendarEventSnapshot =
       status: string;
       startDateTime: string | null;
       endDateTime: string | null;
+      location?: string | null;
+      durationMs?: number | null;
     }
   | { exists: false };
 
@@ -88,7 +90,7 @@ function getCalendarClient() {
   return google.calendar({ version: "v3", auth });
 }
 
-export async function createCalendarEvent(input: CreateEventInput): Promise<string | null> {
+export async function createCalendarEvent(input: CreateEventInput, calendarId?: string): Promise<string | null> {
   if (!isCalendarConfigured()) return null;
 
   const descriptionLines = [
@@ -104,9 +106,10 @@ export async function createCalendarEvent(input: CreateEventInput): Promise<stri
     `Appointment ID: ${input.appointmentId}`,
   ].filter((line): line is string => Boolean(line));
 
+  const targetCalendarId = calendarId || env.googleCalendarId;
   const calendar = getCalendarClient();
   const response = await calendar.events.insert({
-    calendarId: env.googleCalendarId,
+    calendarId: targetCalendarId,
     requestBody: {
       summary: `${input.clientName} - Quote Visit`,
       description: descriptionLines.join("\n"),
@@ -125,12 +128,12 @@ export async function createCalendarEvent(input: CreateEventInput): Promise<stri
   return response.data.id || null;
 }
 
-export async function cancelCalendarEvent(eventId: string | null | undefined): Promise<void> {
+export async function cancelCalendarEvent(eventId: string | null | undefined, calendarId?: string): Promise<void> {
   if (!eventId || !isCalendarConfigured()) return;
 
   const calendar = getCalendarClient();
   await calendar.events.delete({
-    calendarId: env.googleCalendarId,
+    calendarId: calendarId || env.googleCalendarId,
     eventId,
   });
 }
@@ -159,24 +162,50 @@ export async function cancelCalendarEventByAppointmentId(appointmentId: string):
   return true;
 }
 
-export async function getCalendarEventSnapshot(eventId: string | null | undefined): Promise<CalendarEventSnapshot> {
+export async function getCalendarEventSnapshot(eventId: string | null | undefined, calendarId?: string): Promise<CalendarEventSnapshot> {
   if (!eventId || !isCalendarConfigured()) return { exists: false };
 
   const calendar = getCalendarClient();
   try {
     const event = await calendar.events.get({
-      calendarId: env.googleCalendarId,
+      calendarId: calendarId || env.googleCalendarId,
       eventId,
     });
+    const durationMs =
+      event.data.start?.dateTime && event.data.end?.dateTime
+        ? new Date(event.data.end.dateTime).getTime() - new Date(event.data.start.dateTime).getTime()
+        : null;
     return {
       exists: true,
       status: event.data.status || "confirmed",
       startDateTime: event.data.start?.dateTime || null,
       endDateTime: event.data.end?.dateTime || null,
+      location: event.data.location || null,
+      durationMs,
     };
   } catch {
     return { exists: false };
   }
+}
+
+export async function updateCalendarEventTime(
+  calendarId: string,
+  eventId: string,
+  date: string,
+  startTime: string,
+  endTime: string,
+): Promise<void> {
+  if (!isCalendarConfigured()) return;
+
+  const calendar = getCalendarClient();
+  await calendar.events.patch({
+    calendarId,
+    eventId,
+    requestBody: {
+      start: { dateTime: `${date}T${startTime}:00`, timeZone: env.googleCalendarTimezone },
+      end: { dateTime: `${date}T${endTime}:00`, timeZone: env.googleCalendarTimezone },
+    },
+  });
 }
 
 export async function listCalendarEvents(params: {
