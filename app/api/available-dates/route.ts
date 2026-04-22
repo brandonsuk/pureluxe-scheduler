@@ -17,6 +17,7 @@ export async function POST(request: Request) {
       parsed.data.preferred_window,
       parsed.data.from_date,
       parsed.data.days_ahead || 14,
+      parsed.data.override_max_drive,
     );
 
     return jsonOk({ available_dates: availableDates }, request);

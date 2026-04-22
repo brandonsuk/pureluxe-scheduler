@@ -66,6 +66,7 @@ export const availableDatesSchema = z.object({
   preferred_window: z.enum(["morning", "afternoon", "evening"]),
   from_date: z.string().optional(),
   days_ahead: z.coerce.number().int().min(1).max(60).optional(),
+  override_max_drive: z.boolean().optional(),
 });
 
 export const cancelSchema = z.object({

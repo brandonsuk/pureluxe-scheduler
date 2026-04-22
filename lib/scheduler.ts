@@ -544,6 +544,7 @@ export async function findAvailableDates(
   preferredWindow: PreferredWindow,
   fromDate?: string,
   targetDaysWithSlots = 14,
+  overrideMaxDrive?: boolean,
 ): Promise<string[]> {
   // Fetch up to 60 calendar days so we can return the first targetDaysWithSlots days
   // that actually have open slots, rather than just the first N calendar days.
@@ -554,7 +555,7 @@ export async function findAvailableDates(
 
   for (const date of uniqueDates) {
     if (availableDates.length >= targetDaysWithSlots) break;
-    const slots = await findPreferredSlots(location, durationMins, date, preferredWindow);
+    const slots = await findPreferredSlots(location, durationMins, date, preferredWindow, undefined, overrideMaxDrive);
     if (slots.length > 0) availableDates.push(date);
   }
 
