@@ -47,6 +47,7 @@ function BookingPageInner() {
       email: searchParams.get("email") || "",
       phone: searchParams.get("phone") || "",
       postcode: searchParams.get("postcode") || "",
+      qualified: searchParams.get("qualified") === "1",
     }),
     [searchParams],
   );
@@ -79,7 +80,7 @@ function BookingPageInner() {
         body: JSON.stringify({ address }),
       });
 
-      if (!result.valid) {
+      if (!result.valid && !prefill.qualified) {
         setError("Sorry, PureLuxe doesn't currently cover your area");
         setStatus("");
         return;
@@ -101,7 +102,7 @@ function BookingPageInner() {
       setStatus("Finding best slots...");
       const result = await apiFetch<AvailableSlotsResponse>("/api/available-slots", {
         method: "POST",
-        body: JSON.stringify({ lat: coords.lat, lng: coords.lng, duration_mins: duration }),
+        body: JSON.stringify({ lat: coords.lat, lng: coords.lng, duration_mins: duration, ...(prefill.qualified ? { override_max_drive: true } : {}) }),
       });
       setSelectedSlot(null);
       setFeaturedSlots(result.featured_slots || []);
@@ -184,6 +185,7 @@ function BookingPageInner() {
           preferred_date: preferredDate,
           preferred_window: preferredWindow,
           preferred_time: preferredTime,
+          ...(prefill.qualified ? { override_max_drive: true } : {}),
         }),
       });
       setPreferredSlots(result.slots || []);
