@@ -135,6 +135,7 @@ function BookingPageInner() {
           lat: coords.lat,
           lng: coords.lng,
           readiness_level: readiness,
+          ...(prefill.qualified ? { override_max_drive: true } : {}),
         }),
       });
 
