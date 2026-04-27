@@ -68,7 +68,7 @@ function bookingLeadHtml(payload: BookingPayload): string {
         <p style="margin:0;"><strong>Address:</strong> ${payload.address}</p>
       </td></tr>
     </table>
-    <p style="margin:16px 0 8px 0;color:#2f2f2f;line-height:1.6;">Thomas will be coming to quote. If needed, call <strong>07710597590</strong>.</p>
+    <p style="margin:16px 0 8px 0;color:#2f2f2f;line-height:1.6;">Thomas will be coming to quote. If needed, call <strong>07803424399</strong>.</p>
     <p style="margin:0;color:#2f2f2f;line-height:1.6;">To cancel by email, reply with <strong>CA</strong>.</p>
   `,
   );
@@ -88,12 +88,12 @@ function cancellationLeadHtml(date: string, startTime: string): string {
 export async function sendBookingNotifications(payload: BookingPayload) {
   const leadEmailText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins) at ${payload.address}.
 
-Thomas will be coming to quote, his phone number is 07710597590 incase you need it.
+Thomas will be coming to quote, his phone number is 07803424399 incase you need it.
 
 Reply with the word CA to this email if you need to cancel your appointment.`;
   const leadSmsText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins) at ${payload.address}.
 
-Thomas will be coming to quote, his phone number is 07710597590 incase you need it.
+Thomas will be coming to quote, his phone number is 07803424399 incase you need it.
 
 Reply with the word CA by SMS if you need to cancel your appointment.`;
   const adminText = `New booking: ${payload.clientName}, ${payload.date} ${payload.startTime}, ${payload.address}, ${payload.durationMins} mins, readiness: ${payload.readinessLevel}.`;
@@ -258,7 +258,7 @@ function reminder24hHtml(payload: ReminderPayload): string {
         <p style="margin:0;"><strong>Address:</strong> ${payload.address}</p>
       </td></tr>
     </table>
-    <p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Thomas' number is <strong>07710597590</strong> if you need to reach him. Reply <strong>CA</strong> to cancel.</p>
+    <p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Thomas' number is <strong>07803424399</strong> if you need to reach him. Reply <strong>CA</strong> to cancel.</p>
   `,
   );
 }
@@ -266,7 +266,7 @@ function reminder24hHtml(payload: ReminderPayload): string {
 export async function sendReminder24h(payload: ReminderPayload) {
   const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, at ${payload.address}.
 
-Thomas' number is 07710597590 if needed.
+Thomas' number is 07803424399 if needed.
 
 Reply CA by SMS if you need to cancel.`;
   await Promise.allSettled([
@@ -281,7 +281,7 @@ Reply CA by SMS if you need to cancel.`;
 export async function sendReminder24hSms(payload: Pick<ReminderPayload, "clientPhone" | "date" | "startTime" | "address">) {
   const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, at ${payload.address}.
 
-Thomas' number is 07710597590 if needed.
+Thomas' number is 07803424399 if needed.
 
 Reply CA by SMS if you need to cancel.`;
   await sendSms(payload.clientPhone, body);
