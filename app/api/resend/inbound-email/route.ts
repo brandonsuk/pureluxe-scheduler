@@ -71,7 +71,7 @@ export async function POST(request: Request) {
     resend.emails.send({
       from: "PureLuxe <contact@pureluxebathrooms.co.uk>",
       to: env.adminAlertEmail,
-      reply_to: from,
+      replyTo: from,
       subject: `Lead email: ${subject}`,
       text: `From: ${from}\n\n${forwardBody}`,
     }).catch((e) => {
