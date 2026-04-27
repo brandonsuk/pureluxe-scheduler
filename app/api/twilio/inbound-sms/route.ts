@@ -96,6 +96,16 @@ function isValidTwilioRequest(request: Request, formBody: string): boolean {
   return possibleRequestUrls(request).some((url) => twilio.validateRequest(env.twilioAuthToken, signature, url, params));
 }
 
+async function forwardToThomas(from: string, body: string): Promise<void> {
+  if (!env.twilioSid || !env.twilioAuthToken || !env.twilioPhoneNumber) return;
+  const client = twilio(env.twilioSid, env.twilioAuthToken);
+  await client.messages.create({
+    from: env.twilioPhoneNumber,
+    to: "+447803424399",
+    body: `Lead ${from}: ${body}`,
+  });
+}
+
 export async function POST(request: Request) {
   const formBody = await request.text();
 
@@ -106,6 +116,12 @@ export async function POST(request: Request) {
   const payload = parseBody(formBody);
   const from = payload.From || "";
   const body = payload.Body || "";
+
+  // Forward every inbound lead message to Thomas (fire-and-forget)
+  forwardToThomas(from, body).catch((e) => {
+    // eslint-disable-next-line no-console
+    console.error("inbound_sms_forward_thomas_failed", e);
+  });
 
   if (commandIsUndo(body)) {
     const numbers = phoneCandidates(from);
