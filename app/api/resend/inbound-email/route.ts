@@ -64,6 +64,22 @@ export async function POST(request: Request) {
   const html = (received.data.html || "").replace(/<[^>]*>/g, " ").trim();
   const combined = `${text}\n${html}`.trim();
 
+  // Forward every inbound lead email to Thomas (fire-and-forget)
+  if (from && resend) {
+    const subject = (received.data as unknown as { subject?: string }).subject || "(no subject)";
+    const forwardBody = text || html || "(empty message)";
+    resend.emails.send({
+      from: "PureLuxe <contact@pureluxebathrooms.co.uk>",
+      to: env.adminAlertEmail,
+      reply_to: from,
+      subject: `Lead email: ${subject}`,
+      text: `From: ${from}\n\n${forwardBody}`,
+    }).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error("inbound_email_forward_thomas_failed", e);
+    });
+  }
+
   if (!from || !commandIsCancel(combined)) {
     return jsonOk({ success: true, ignored: true, reason: "no_ca_command" }, request);
   }
