@@ -117,11 +117,13 @@ export async function POST(request: Request) {
   const from = payload.From || "";
   const body = payload.Body || "";
 
-  // Forward every inbound lead message to Thomas (fire-and-forget)
-  forwardToThomas(from, body).catch((e) => {
-    // eslint-disable-next-line no-console
-    console.error("inbound_sms_forward_thomas_failed", e);
-  });
+  // Forward every inbound lead message to Thomas, except plain CA cancellations
+  if (body.trim().toUpperCase() !== "CA") {
+    forwardToThomas(from, body).catch((e) => {
+      // eslint-disable-next-line no-console
+      console.error("inbound_sms_forward_thomas_failed", e);
+    });
+  }
 
   if (commandIsUndo(body)) {
     const numbers = phoneCandidates(from);
