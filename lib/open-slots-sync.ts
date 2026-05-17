@@ -10,6 +10,7 @@ type SyncResult = {
   matched_open_slots: number;
   imported: number;
   skipped: number;
+  blockers_synced: number;
 };
 
 type TimeParts = {
@@ -67,7 +68,7 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
   const startDate = format(windowStart, "yyyy-MM-dd");
   const endDate = format(windowEnd, "yyyy-MM-dd");
 
-  const rows: Array<{
+  const openSlotRows: Array<{
     date: string;
     start_time: string;
     end_time: string;
@@ -75,31 +76,76 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     source: "google_open_slots";
     google_event_id: string;
   }> = [];
+
+  const blockerRows: Array<{
+    google_event_id: string;
+    summary: string;
+    address: string;
+    lat: number;
+    lng: number;
+    date: string;
+    start_time: string;
+    end_time: string;
+  }> = [];
+
   let skipped = 0;
   let matchedOpenSlots = 0;
 
   for (const event of events) {
     if (event.status === "cancelled") continue;
-    if (!/open slots?/i.test(event.summary || "")) continue;
 
-    matchedOpenSlots += 1;
-    const start = formatInTimezone(event.startDateTime, env.googleCalendarTimezone);
-    const end = formatInTimezone(event.endDateTime, env.googleCalendarTimezone);
-    if (!start || !end || start.date !== end.date || toMinuteOfDay(end.time) <= toMinuteOfDay(start.time)) {
-      skipped += 1;
-      continue;
+    const isOpenSlot = /open slots?/i.test(event.summary || "");
+
+    if (isOpenSlot) {
+      matchedOpenSlots += 1;
+      const start = formatInTimezone(event.startDateTime, env.googleCalendarTimezone);
+      const end = formatInTimezone(event.endDateTime, env.googleCalendarTimezone);
+      if (!start || !end || start.date !== end.date || toMinuteOfDay(end.time) <= toMinuteOfDay(start.time)) {
+        skipped += 1;
+        continue;
+      }
+      openSlotRows.push({
+        date: start.date,
+        start_time: start.time,
+        end_time: end.time,
+        is_available: true,
+        source: "google_open_slots",
+        google_event_id: event.id,
+      });
+    } else if (event.startDateTime && event.endDateTime) {
+      // Timed non-open-slot event — treat as a blocker so manual appointments
+      // prevent the self-booking system from offering overlapping slots.
+      const start = formatInTimezone(event.startDateTime, env.googleCalendarTimezone);
+      const end = formatInTimezone(event.endDateTime, env.googleCalendarTimezone);
+      if (!start || !end) continue;
+
+      // May span multiple days — add a blocker row for each affected date
+      let d = start.date;
+      while (d <= end.date) {
+        const dayStart = d === start.date ? start.time : "00:00";
+        const dayEnd = d === end.date ? end.time : "23:59";
+        if (dayStart < dayEnd) {
+          blockerRows.push({
+            google_event_id: event.id,
+            summary: event.summary || "",
+            address: event.location || "",
+            // Use home base coords as fallback — ensures drive-time calcs don't
+            // crash on null, and overlap rejection works regardless of lat/lng.
+            lat: env.homeBaseLat,
+            lng: env.homeBaseLng,
+            date: d,
+            start_time: dayStart,
+            end_time: dayEnd,
+          });
+        }
+        d = format(addDays(new Date(d), 1), "yyyy-MM-dd");
+      }
     }
-
-    rows.push({
-      date: start.date,
-      start_time: start.time,
-      end_time: end.time,
-      is_available: true,
-      source: "google_open_slots",
-      google_event_id: event.id,
-    });
+    // All-day non-open-slot events are ignored — they typically represent
+    // holidays or reminders, not specific timed commitments.
   }
 
+  // --- Update working_hour_windows ---
   const { error: deleteError } = await supabaseAdmin
     .from("working_hour_windows")
     .delete()
@@ -108,11 +154,26 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     .lte("date", endDate);
   if (deleteError) throw new Error(deleteError.message);
 
-  if (rows.length) {
+  if (openSlotRows.length) {
     const { error: upsertError } = await supabaseAdmin
       .from("working_hour_windows")
-      .upsert(rows, { onConflict: "date,start_time,end_time,source" });
+      .upsert(openSlotRows, { onConflict: "date,start_time,end_time,source" });
     if (upsertError) throw new Error(upsertError.message);
+  }
+
+  // --- Update calendar_blockers ---
+  const { error: blockerDeleteError } = await supabaseAdmin
+    .from("calendar_blockers")
+    .delete()
+    .gte("date", startDate)
+    .lte("date", endDate);
+  if (blockerDeleteError) throw new Error(blockerDeleteError.message);
+
+  if (blockerRows.length) {
+    const { error: blockerInsertError } = await supabaseAdmin
+      .from("calendar_blockers")
+      .insert(blockerRows);
+    if (blockerInsertError) throw new Error(blockerInsertError.message);
   }
 
   return {
@@ -120,7 +181,8 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     window_end: endDate,
     scanned: events.length,
     matched_open_slots: matchedOpenSlots,
-    imported: rows.length,
+    imported: openSlotRows.length,
     skipped,
+    blockers_synced: blockerRows.length,
   };
 }
