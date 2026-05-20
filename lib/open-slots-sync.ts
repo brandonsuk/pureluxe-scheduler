@@ -174,7 +174,6 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
 
   const geocodeCache = new Map<string, { lat: number; lng: number }>(
     (existingBlockers || [])
-      .filter((b: { lat: number; lng: number }) => b.lat !== env.homeBaseLat || b.lng !== env.homeBaseLng)
       .map((b: { google_event_id: string; lat: number; lng: number }) => [b.google_event_id, { lat: b.lat, lng: b.lng }])
   );
 
@@ -191,7 +190,8 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
         row.lat = geo.lat;
         row.lng = geo.lng;
       } catch {
-        // Geocode failed — home base fallback already set
+        // Geocode failed — cache home base so we don't retry on every sync run
+        geocodeCache.set(row.google_event_id, { lat: env.homeBaseLat, lng: env.homeBaseLng });
       }
     }
   }
