@@ -2,6 +2,8 @@ import { env } from "@/lib/env";
 import { jsonError, jsonOk } from "@/lib/http";
 import { runOpenSlotsSync } from "@/lib/open-slots-sync";
 
+export const maxDuration = 60;
+
 function isAuthorized(request: Request): boolean {
   if (!env.cronSecret) return false;
   const auth = request.headers.get("authorization") || "";

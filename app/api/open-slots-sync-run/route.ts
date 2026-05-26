@@ -3,6 +3,7 @@ import { env } from "@/lib/env";
 import { jsonError, jsonOk } from "@/lib/http";
 import { runOpenSlotsSync } from "@/lib/open-slots-sync";
 
+export const maxDuration = 60;
 export const OPTIONS = corsOptions;
 
 export async function POST(request: Request) {
