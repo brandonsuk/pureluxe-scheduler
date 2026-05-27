@@ -1,7 +1,6 @@
 import { addDays, format, subDays } from "date-fns";
 import { env } from "@/lib/env";
 import { listCalendarEvents } from "@/lib/google-calendar";
-import { geocodeAddress } from "@/lib/address";
 import { supabaseAdmin } from "@/lib/supabase";
 
 type SyncResult = {
@@ -130,8 +129,8 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
             google_event_id: event.id,
             summary: event.summary || "",
             address: event.location || "",
-            // Use home base coords as fallback — ensures drive-time calcs don't
-            // crash on null, and overlap rejection works regardless of lat/lng.
+            // Home base coords — overlap rejection is time-based, lat/lng only
+            // affects drive-time scoring which is acceptable at home-base precision.
             lat: env.homeBaseLat,
             lng: env.homeBaseLng,
             date: d,
@@ -163,39 +162,6 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
   }
 
   // --- Update calendar_blockers ---
-  // Load existing cached geocodes so we don't re-geocode unchanged events.
-  const existingBlockerIds = blockerRows.map(r => r.google_event_id);
-  const { data: existingBlockers } = existingBlockerIds.length
-    ? await supabaseAdmin
-        .from("calendar_blockers")
-        .select("google_event_id,lat,lng,address")
-        .in("google_event_id", existingBlockerIds)
-    : { data: [] };
-
-  const geocodeCache = new Map<string, { lat: number; lng: number }>(
-    (existingBlockers || [])
-      .map((b: { google_event_id: string; lat: number; lng: number }) => [b.google_event_id, { lat: b.lat, lng: b.lng }])
-  );
-
-  // Geocode any event locations not already cached
-  for (const row of blockerRows) {
-    if (geocodeCache.has(row.google_event_id)) {
-      const cached = geocodeCache.get(row.google_event_id)!;
-      row.lat = cached.lat;
-      row.lng = cached.lng;
-    } else if (row.address) {
-      try {
-        const geo = await geocodeAddress(row.address);
-        geocodeCache.set(row.google_event_id, { lat: geo.lat, lng: geo.lng });
-        row.lat = geo.lat;
-        row.lng = geo.lng;
-      } catch {
-        // Geocode failed — cache home base so we don't retry on every sync run
-        geocodeCache.set(row.google_event_id, { lat: env.homeBaseLat, lng: env.homeBaseLng });
-      }
-    }
-  }
-
   const { error: blockerDeleteError } = await supabaseAdmin
     .from("calendar_blockers")
     .delete()
