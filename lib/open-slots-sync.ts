@@ -68,6 +68,26 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
   const startDate = format(windowStart, "yyyy-MM-dd");
   const endDate = format(windowEnd, "yyyy-MM-dd");
 
+  // System-booked appointments create an event on the Open Slots calendar
+  // (thomas_event_id). Those bookings are already tracked in the `appointments`
+  // table with the real customer location, so they must NOT also be turned into
+  // calendar_blockers — doing so double-blocks each booking and pins a phantom
+  // copy at home-base coordinates, which inflates drive-time windows and wrongly
+  // rejects nearby slots. Only genuine external events should become blockers.
+  const { data: bookingEvents, error: bookingError } = await supabaseAdmin
+    .from("appointments")
+    .select("thomas_event_id,google_event_id")
+    .eq("status", "confirmed")
+    .gte("date", startDate)
+    .lte("date", endDate);
+  if (bookingError) throw new Error(bookingError.message);
+
+  const bookingEventIds = new Set<string>();
+  for (const row of (bookingEvents || []) as { thomas_event_id: string | null; google_event_id: string | null }[]) {
+    if (row.thomas_event_id) bookingEventIds.add(row.thomas_event_id);
+    if (row.google_event_id) bookingEventIds.add(row.google_event_id);
+  }
+
   const openSlotRows: Array<{
     date: string;
     start_time: string;
@@ -115,6 +135,10 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
     } else if (event.startDateTime && event.endDateTime) {
       // Timed non-open-slot event — treat as a blocker so manual appointments
       // prevent the self-booking system from offering overlapping slots.
+      // Skip events that are already tracked as system bookings (handled by the
+      // appointments table with the real location) to avoid double-blocking.
+      if (bookingEventIds.has(event.id)) continue;
+
       const start = formatInTimezone(event.startDateTime, env.googleCalendarTimezone);
       const end = formatInTimezone(event.endDateTime, env.googleCalendarTimezone);
       if (!start || !end) continue;
