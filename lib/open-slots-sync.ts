@@ -133,40 +133,36 @@ export async function runOpenSlotsSync(daysAhead = 14): Promise<SyncResult> {
         google_event_id: event.id,
       });
     } else if (event.startDateTime && event.endDateTime) {
-      // Timed non-open-slot event — treat as a blocker so manual appointments
-      // prevent the self-booking system from offering overlapping slots.
-      // Skip events that are already tracked as system bookings (handled by the
-      // appointments table with the real location) to avoid double-blocking.
+      // Timed non-open-slot event — only treat as a blocker if it falls within
+      // a single calendar day. Multi-day timed events (e.g. week-long renovation
+      // jobs) are skipped: the absence of Open Slots events already makes those
+      // days unavailable, and expanding a multi-day event to 00:00–23:59 rows
+      // for each intermediate day would block every slot on days that DO have
+      // Open Slots windows (e.g. a recurring Open Slots pattern).
+      // Also skip events already tracked as system bookings — those are handled
+      // by the appointments table with the real customer location.
       if (bookingEventIds.has(event.id)) continue;
 
       const start = formatInTimezone(event.startDateTime, env.googleCalendarTimezone);
       const end = formatInTimezone(event.endDateTime, env.googleCalendarTimezone);
       if (!start || !end) continue;
+      if (start.date !== end.date) continue;
 
-      // May span multiple days — add a blocker row for each affected date
-      let d = start.date;
-      while (d <= end.date) {
-        const dayStart = d === start.date ? start.time : "00:00";
-        const dayEnd = d === end.date ? end.time : "23:59";
-        if (dayStart < dayEnd) {
-          blockerRows.push({
-            google_event_id: event.id,
-            summary: event.summary || "",
-            address: event.location || "",
-            // Home base coords — overlap rejection is time-based, lat/lng only
-            // affects drive-time scoring which is acceptable at home-base precision.
-            lat: env.homeBaseLat,
-            lng: env.homeBaseLng,
-            date: d,
-            start_time: dayStart,
-            end_time: dayEnd,
-          });
-        }
-        d = format(addDays(new Date(d), 1), "yyyy-MM-dd");
+      if (toMinuteOfDay(end.time) > toMinuteOfDay(start.time)) {
+        blockerRows.push({
+          google_event_id: event.id,
+          summary: event.summary || "",
+          address: event.location || "",
+          lat: env.homeBaseLat,
+          lng: env.homeBaseLng,
+          date: start.date,
+          start_time: start.time,
+          end_time: end.time,
+        });
       }
     }
-    // All-day non-open-slot events are ignored — they typically represent
-    // holidays or reminders, not specific timed commitments.
+    // All-day and multi-day non-open-slot events are ignored — availability on
+    // those days is already controlled by the presence/absence of Open Slots.
   }
 
   // --- Update working_hour_windows ---
