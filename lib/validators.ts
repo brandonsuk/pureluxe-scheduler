@@ -65,7 +65,7 @@ export const availableDatesSchema = z.object({
   duration_mins: z.coerce.number().int().min(30).max(180),
   preferred_window: z.enum(["morning", "afternoon", "evening"]),
   from_date: z.string().optional(),
-  days_ahead: z.coerce.number().int().min(1).max(60).optional(),
+  days_ahead: z.coerce.number().int().min(1).max(30).optional(),
   override_max_drive: z.boolean().optional(),
 });
 

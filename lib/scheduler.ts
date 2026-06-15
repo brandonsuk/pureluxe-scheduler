@@ -407,8 +407,8 @@ export async function findBestSlots(
   fromDate?: string,
   overrideMaxDrive?: boolean,
 ): Promise<{ featured_slots: CandidateSlot[]; all_slots: Record<string, CandidateSlot[]> }> {
-  // Fetch up to 60 calendar days so we can find the first 14 days that actually have open slots.
-  const days = await fetchWorkingDays(fromDate, 60);
+  // Fetch up to 30 calendar days so we can find the first 14 days that actually have open slots.
+  const days = await fetchWorkingDays(fromDate, 30);
   const allValid: CandidateSlot[] = [];
   let checkedCandidates = 0;
   const MAX_CANDIDATES_TO_CHECK = 120;
@@ -546,9 +546,9 @@ export async function findAvailableDates(
   targetDaysWithSlots = 14,
   overrideMaxDrive?: boolean,
 ): Promise<string[]> {
-  // Fetch up to 60 calendar days so we can return the first targetDaysWithSlots days
+  // Fetch up to 30 calendar days so we can return the first targetDaysWithSlots days
   // that actually have open slots, rather than just the first N calendar days.
-  const calendarWindow = Math.min(60, Math.max(targetDaysWithSlots * 3, 30));
+  const calendarWindow = Math.min(30, Math.max(targetDaysWithSlots * 3, 30));
   const days = await fetchWorkingDays(fromDate, calendarWindow);
   const uniqueDates = [...new Set(days.map((d) => d.date))].sort((a, b) => a.localeCompare(b));
   const availableDates: string[] = [];

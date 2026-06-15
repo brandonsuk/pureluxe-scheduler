@@ -2,6 +2,7 @@ import { corsOptions } from "@/lib/cors";
 import { env } from "@/lib/env";
 import { jsonError, jsonOk } from "@/lib/http";
 import { bookSchema } from "@/lib/validators";
+import { addDays, format } from "date-fns";
 import { addMins } from "@/lib/time";
 import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
@@ -58,6 +59,10 @@ export async function POST(request: Request) {
     }
 
     const payload = parsed.data;
+    const maxBookableDate = format(addDays(new Date(), 30), "yyyy-MM-dd");
+    if (payload.date > maxBookableDate) {
+      return jsonError("Cannot book more than 30 days in advance", request, 422);
+    }
     const existing = await fetchDayAppointments(payload.date);
     const check = await validateCandidateSlot(
       {

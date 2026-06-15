@@ -13,7 +13,7 @@ function isAuthorized(request: Request): boolean {
 export async function GET(request: Request) {
   if (!isAuthorized(request)) return jsonError("Unauthorized", request, 401);
   try {
-    const result = await runOpenSlotsSync(14);
+    const result = await runOpenSlotsSync(30);
     return jsonOk(result, request);
   } catch (error) {
     return jsonError(error instanceof Error ? error.message : "Open slots sync failed", request, 500);

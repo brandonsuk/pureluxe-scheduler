@@ -161,7 +161,7 @@ export default function AdminPage() {
         "/api/open-slots-sync-run",
         {
           method: "POST",
-          body: JSON.stringify({ admin_password: password, days_ahead: 14 }),
+          body: JSON.stringify({ admin_password: password, days_ahead: 30 }),
         },
       );
       await loadWorkingHours(password);

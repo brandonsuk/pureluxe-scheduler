@@ -15,8 +15,8 @@ export async function POST(request: Request) {
 
     const daysAhead =
       typeof body.days_ahead === "number" && Number.isFinite(body.days_ahead)
-        ? Math.max(1, Math.min(60, Math.floor(body.days_ahead)))
-        : 14;
+        ? Math.max(1, Math.min(30, Math.floor(body.days_ahead)))
+        : 30;
 
     const result = await runOpenSlotsSync(daysAhead);
     return jsonOk(result, request);
