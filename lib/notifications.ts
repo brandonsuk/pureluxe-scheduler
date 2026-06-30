@@ -91,11 +91,7 @@ export async function sendBookingNotifications(payload: BookingPayload) {
 Thomas will be coming to quote, his phone number is 07803424399 incase you need it.
 
 Reply with the word CA to this email if you need to cancel your appointment.`;
-  const leadSmsText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins) at ${payload.address}.
-
-Thomas will be coming to quote, his phone number is 07803424399 incase you need it.
-
-Reply with the word CA by SMS if you need to cancel your appointment.`;
+  const leadSmsText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins), ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
   const adminText = `New booking: ${payload.clientName}, ${payload.date} ${payload.startTime}, ${payload.address}, ${payload.durationMins} mins, readiness: ${payload.readinessLevel}.`;
 
   await Promise.allSettled([
@@ -111,7 +107,7 @@ export async function sendCancellationNotifications(
   payload: Pick<BookingPayload, "clientEmail" | "clientPhone" | "date" | "startTime">,
   options?: { sendSms?: boolean },
 ) {
-  const text = `Your PureLuxe appointment on ${payload.date} at ${payload.startTime} has been cancelled.`;
+  const text = `PureLuxe: your appointment on ${payload.date} at ${payload.startTime} is cancelled.`;
   const adminText = `Cancellation: ${payload.date} ${payload.startTime}. Lead email: ${payload.clientEmail}. Lead phone: ${payload.clientPhone}.`;
   const sendSmsEnabled = options?.sendSms ?? true;
   await Promise.allSettled([
@@ -264,11 +260,7 @@ function reminder24hHtml(payload: ReminderPayload): string {
 }
 
 export async function sendReminder24h(payload: ReminderPayload) {
-  const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, at ${payload.address}.
-
-Thomas' number is 07803424399 if needed.
-
-Reply CA by SMS if you need to cancel.`;
+  const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
   await Promise.allSettled([
     sendSms(payload.clientPhone, body),
     sendEmail(payload.clientEmail, "Reminder: Your PureLuxe Visit Tomorrow", body, {
@@ -279,11 +271,7 @@ Reply CA by SMS if you need to cancel.`;
 
 /** @deprecated use sendReminder24h */
 export async function sendReminder24hSms(payload: Pick<ReminderPayload, "clientPhone" | "date" | "startTime" | "address">) {
-  const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, at ${payload.address}.
-
-Thomas' number is 07803424399 if needed.
-
-Reply CA by SMS if you need to cancel.`;
+  const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
   await sendSms(payload.clientPhone, body);
 }
 
@@ -307,7 +295,7 @@ function abandonedLeadHtml(payload: AbandonedLeadPayload): string {
 }
 
 export async function sendAbandonedLeadFollowUp(payload: AbandonedLeadPayload) {
-  const smsBody = `Hi ${payload.clientName}, you were very close to booking your free PureLuxe quote visit. Finish your booking here: ${payload.resumeLink}`;
+  const smsBody = `Hi ${payload.clientName}, you're almost booked for your free PureLuxe quote visit. Finish here: ${payload.resumeLink}`;
   await Promise.allSettled([
     sendSms(payload.clientPhone, smsBody),
     sendEmail(payload.clientEmail, "Complete your PureLuxe booking", smsBody, {
@@ -317,7 +305,7 @@ export async function sendAbandonedLeadFollowUp(payload: AbandonedLeadPayload) {
 }
 
 export async function sendAbandonedLeadSms(payload: AbandonedLeadPayload) {
-  const body = `Hi ${payload.clientName}, you were very close to booking your free PureLuxe quote visit. Finish your booking here: ${payload.resumeLink}`;
+  const body = `Hi ${payload.clientName}, you're almost booked for your free PureLuxe quote visit. Finish here: ${payload.resumeLink}`;
   await sendSms(payload.clientPhone, body);
 }
 
@@ -327,7 +315,7 @@ export async function sendQualificationSms(payload: {
   clientEmail?: string;
   bookingLink: string;
 }) {
-  const body = `We'd love to visit you for your free PureLuxe Bathroom consultation! Slots are now available, book one that suits you here: ${payload.bookingLink}`;
+  const body = `Your free PureLuxe bathroom consultation is ready to book. Pick a time that suits you: ${payload.bookingLink}`;
   const htmlBody = emailShell(
     "Your PureLuxe Booking Slots Are Ready",
     `
@@ -355,7 +343,7 @@ export async function sendRescheduleInvite(
     ...(payload.address ? { address: payload.address } : {}),
   });
   const bookingLink = `${env.funnelBaseUrl}/book?${params.toString()}`;
-  const smsBody = `You can rebook your PureLuxe visit here — your details are already saved: ${bookingLink}`;
+  const smsBody = `Rebook your PureLuxe visit here (details already saved): ${bookingLink}`;
   const htmlBody = emailShell(
     "Rebook Your PureLuxe Visit",
     `

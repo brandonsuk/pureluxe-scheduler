@@ -209,7 +209,7 @@ export async function POST(request: Request) {
   }
 
   if (!commandIsCancel(body)) {
-    return xmlResponse("Reply CA to cancel or UNDO to restore your next upcoming appointment.");
+    return xmlResponse("Reply CA to cancel, or UNDO to restore your next appointment.");
   }
 
   const numbers = phoneCandidates(from);
@@ -292,5 +292,5 @@ export async function POST(request: Request) {
   });
   const rescheduleLink = `${env.funnelBaseUrl}/book?${rescheduleParams.toString()}`;
 
-  return xmlResponse(`Appointment cancelled. To rebook at a better time — your details are saved: ${rescheduleLink}`);
+  return xmlResponse(`Appointment cancelled. Rebook here (details saved): ${rescheduleLink}`);
 }
