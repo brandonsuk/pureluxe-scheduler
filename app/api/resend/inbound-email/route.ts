@@ -34,8 +34,44 @@ function extractEmail(input: string): string {
   return email;
 }
 
-function commandIsCancel(content: string): boolean {
-  return /\bCA\b/i.test(content);
+// Remove quoted reply history (the thread quoted below the customer's message) so
+// only what the customer actually typed drives cancellation. Prevents a quoted
+// "reply CA to cancel" from triggering an unintended cancel.
+function stripQuotedReply(text: string): string {
+  const lines = text.split(/\r?\n/);
+  const kept: string[] = [];
+  for (const line of lines) {
+    const t = line.trim();
+    if (
+      t.startsWith(">") ||
+      /^On\b.*\bwrote:?\s*$/i.test(t) ||
+      /^-{2,}\s*Original Message\s*-{2,}/i.test(t) ||
+      /^_{5,}$/.test(t) ||
+      /^From:\s/i.test(t) ||
+      /^Sent from my /i.test(t)
+    ) {
+      break;
+    }
+    kept.push(line);
+  }
+  return kept.join("\n").trim();
+}
+
+// HTML replies wrap the quoted thread in a blockquote / gmail_quote container.
+// Cut from the first such marker before stripping tags.
+function stripQuotedHtml(html: string): string {
+  let cut = html;
+  for (const marker of [/<blockquote/i, /gmail_quote/i, /<div[^>]*class="[^"]*quote/i]) {
+    const idx = cut.search(marker);
+    if (idx !== -1) cut = cut.slice(0, idx);
+  }
+  return cut.replace(/<[^>]*>/g, " ").replace(/\s+/g, " ").trim();
+}
+
+// A customer cancels if their message contains the "CA" keyword OR the word
+// "cancel" (covers natural phrasing like "please cancel my appointment").
+function hasCancelIntent(content: string): boolean {
+  return /\bCA\b/i.test(content) || /\bcancel/i.test(content);
 }
 
 export async function POST(request: Request) {
@@ -62,7 +98,10 @@ export async function POST(request: Request) {
   const from = extractEmail(received.data.from || "");
   const text = (received.data.text || "").trim();
   const html = (received.data.html || "").replace(/<[^>]*>/g, " ").trim();
-  const combined = `${text}\n${html}`.trim();
+  // Cancellation is judged on the customer's own words only (quoted thread removed).
+  const customerMessage = text
+    ? stripQuotedReply(text)
+    : stripQuotedHtml(received.data.html || "");
 
   // Forward every inbound lead email to Thomas (fire-and-forget)
   if (from && resend) {
@@ -80,7 +119,7 @@ export async function POST(request: Request) {
     });
   }
 
-  if (!from || !commandIsCancel(combined)) {
+  if (!from || !hasCancelIntent(customerMessage)) {
     return jsonOk({ success: true, ignored: true, reason: "no_ca_command" }, request);
   }
 

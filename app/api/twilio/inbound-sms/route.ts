@@ -70,7 +70,7 @@ function parseBody(formBody: string): Record<string, string> {
 
 
 function commandIsCancel(body: string): boolean {
-  return /\bCA\b/i.test(body);
+  return /\bCA\b/i.test(body) || /\bcancel/i.test(body);
 }
 
 function commandIsUndo(body: string): boolean {
