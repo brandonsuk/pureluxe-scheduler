@@ -5,7 +5,7 @@ import { sendCancellationNotifications, sendRescheduleInvite } from "@/lib/notif
 import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
 import { addMins, todayIsoDate } from "@/lib/time";
-import { markAirtableAppointmentCancelled } from "@/lib/airtable-sync";
+import { markAirtableAppointmentCancelled, markAirtableAppointmentConfirmed } from "@/lib/airtable-sync";
 
 type AppointmentRow = {
   id: string;
@@ -75,6 +75,11 @@ function commandIsCancel(body: string): boolean {
 
 function commandIsUndo(body: string): boolean {
   return body.trim().toUpperCase() === "UNDO";
+}
+
+// Customer confirming attendance in reply to the 24h reminder ("Reply YES").
+function commandIsConfirm(body: string): boolean {
+  return /\b(yes|yep|yeah|yup|confirm(ed|ing)?)\b/i.test(body) || /^\s*y\s*$/i.test(body);
 }
 
 function possibleRequestUrls(request: Request): string[] {
@@ -209,6 +214,34 @@ export async function POST(request: Request) {
   }
 
   if (!commandIsCancel(body)) {
+    // "YES" (or similar) in reply to the 24h reminder = attendance confirmation.
+    if (commandIsConfirm(body)) {
+      const confirmNumbers = phoneCandidates(from);
+      const { data: upcoming } = await supabaseAdmin
+        .from("appointments")
+        .select("id")
+        .eq("status", "confirmed")
+        .gte("date", todayIsoDate())
+        .in("client_phone", confirmNumbers)
+        .order("date", { ascending: true })
+        .order("start_time", { ascending: true })
+        .limit(1);
+
+      const appt = (upcoming || [])[0] as { id: string } | undefined;
+      if (appt) {
+        await supabaseAdmin
+          .from("appointments")
+          .update({ confirmed_at: new Date().toISOString() })
+          .eq("id", appt.id);
+        markAirtableAppointmentConfirmed(from).catch((e) => {
+          // eslint-disable-next-line no-console
+          console.error("inbound_sms_confirm_airtable_sync_failed", e);
+        });
+        return xmlResponse("Thanks, that's confirmed. See you tomorrow!");
+      }
+      // No upcoming booking found for this number — acknowledge gently.
+      return xmlResponse("Thanks! We couldn't find an upcoming booking for this number, so please call us if you're unsure.");
+    }
     return xmlResponse("Reply CA to cancel, or UNDO to restore your next appointment.");
   }
 

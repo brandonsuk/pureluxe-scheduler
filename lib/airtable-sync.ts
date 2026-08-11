@@ -115,6 +115,42 @@ export async function markAirtableAbandonedSmsSent(phone: string, email: string)
 }
 
 /**
+ * Finds the Airtable lead record matching the given phone, then ticks the
+ * "Appointment Confirmed" checkbox. Called when a lead replies "YES" to the
+ * 24h reminder SMS, so the team can see who has confirmed attendance.
+ *
+ * Returns true if the record was updated, false if not found or not configured.
+ */
+export async function markAirtableAppointmentConfirmed(phone: string): Promise<boolean> {
+  if (!env.airtableApiKey) return false;
+
+  const variants = phoneVariants(phone);
+  const formula = `OR(${variants.map((p) => `{phone}="${p}"`).join(",")})`;
+
+  try {
+    const searchRes = await airtableFetch(
+      `?filterByFormula=${encodeURIComponent(formula)}&maxRecords=1&sort[0][field]=Created Time&sort[0][direction]=desc`,
+    );
+    if (!searchRes.ok) return false;
+    const searchData = (await searchRes.json()) as { records?: { id: string }[] };
+    const record = searchData.records?.[0];
+    if (!record) return false;
+
+    const patchRes = await airtableFetch(`/${record.id}`, {
+      method: "PATCH",
+      body: JSON.stringify({
+        fields: {
+          "Appointment Confirmed": true,
+        },
+      }),
+    });
+    return patchRes.ok;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Finds the Airtable lead record matching the given phone or email, then marks
  * it as cancelled (sets Cancelled Appointment = true, clears Booked Appointment
  * and booking date/time). Called automatically when a lead texts/emails "CA".
