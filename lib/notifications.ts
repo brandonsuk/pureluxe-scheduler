@@ -260,7 +260,7 @@ function reminder24hHtml(payload: ReminderPayload): string {
 }
 
 export async function sendReminder24h(payload: ReminderPayload) {
-  const smsBody = `Your PureLuxe quote visit is tomorrow at ${payload.startTime}. Reply "YES" to confirm you'll be in.`;
+  const smsBody = `Your PureLuxe quote visit is tomorrow at ${payload.startTime}. Reply "YES" by 8am to confirm you'll be in.`;
   // Email can't handle a YES reply, so it keeps the fuller details + cancel option.
   const emailBody = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
   await Promise.allSettled([
