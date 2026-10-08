@@ -2,7 +2,7 @@ import { Resend } from "resend";
 import { env } from "@/lib/env";
 import { jsonError, jsonOk } from "@/lib/http";
 import { cancelCalendarEvent, cancelCalendarEventByAppointmentId } from "@/lib/google-calendar";
-import { sendCancellationNotifications, sendRescheduleInvite } from "@/lib/notifications";
+import { sendCancellationNotifications } from "@/lib/notifications";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDate } from "@/lib/time";
 import { markAirtableAppointmentCancelled } from "@/lib/airtable-sync";
@@ -166,6 +166,8 @@ export async function POST(request: Request) {
 
   await sendCancellationNotifications(
     {
+      clientName: appointment.client_name,
+      address: appointment.address,
       clientEmail: appointment.client_email,
       clientPhone: appointment.client_phone,
       date: appointment.date,
@@ -173,14 +175,6 @@ export async function POST(request: Request) {
     },
     { sendSms: false },
   );
-
-  // Send reschedule invite via SMS + email with details pre-filled
-  sendRescheduleInvite({
-    clientName: appointment.client_name || "there",
-    clientEmail: appointment.client_email,
-    clientPhone: appointment.client_phone,
-    address: appointment.address,
-  }).catch(() => {});
 
   return jsonOk({ success: true, cancelled: true, appointment_id: appointment.id }, request);
 }

@@ -92,13 +92,26 @@ function bookingLeadHtml(payload: BookingPayload): string {
   );
 }
 
-function cancellationLeadHtml(date: string, startTime: string): string {
+// Funnel booking page with the customer's details prefilled (used to rebook).
+function rebookLink(p: { clientName?: string; clientPhone: string; clientEmail: string; address?: string }): string {
+  const params = new URLSearchParams({
+    name: p.clientName || "",
+    phone: p.clientPhone,
+    email: p.clientEmail,
+    qualified: "1",
+    ...(p.address ? { address: p.address } : {}),
+  });
+  return `${env.funnelBaseUrl}/book?${params.toString()}`;
+}
+
+function cancellationLeadHtml(date: string, startTime: string, rebookUrl: string): string {
   return emailShell(
     "Appointment Cancelled",
     `
     <h2 style="margin:0 0 14px 0;color:#171717;font-size:24px;">Your appointment has been cancelled</h2>
     <p style="margin:0 0 18px 0;color:#2f2f2f;line-height:1.6;">Your PureLuxe appointment on <strong>${date}</strong> at <strong>${startTime}</strong> is now cancelled.</p>
-    <p style="margin:0;color:#2f2f2f;line-height:1.6;">If this was a mistake, reply to this email or contact us to rebook.</p>
+    <p style="margin:0 0 16px 0;color:#2f2f2f;line-height:1.6;">Cancelled by mistake, or want a different time? Rebook in a minute, your details are already saved.</p>
+    <a href="${rebookUrl}" style="display:inline-block;background:#d5b36a;color:#171717;font-weight:700;padding:14px 28px;border-radius:8px;text-decoration:none;font-size:15px;">Rebook my visit</a>
   `,
   );
 }
@@ -122,15 +135,20 @@ ${manageLinksText(payload.appointmentId)}`;
 }
 
 export async function sendCancellationNotifications(
-  payload: Pick<BookingPayload, "clientEmail" | "clientPhone" | "date" | "startTime">,
+  payload: Pick<BookingPayload, "clientEmail" | "clientPhone" | "date" | "startTime"> & {
+    clientName?: string;
+    address?: string;
+  },
   options?: { sendSms?: boolean },
 ) {
   const text = `PureLuxe: your appointment on ${payload.date} at ${payload.startTime} is cancelled.`;
+  const rebookUrl = rebookLink(payload);
+  const emailText = `${text}\n\nCancelled by mistake, or want a different time? Rebook here (details saved): ${rebookUrl}`;
   const adminText = `Cancellation: ${payload.date} ${payload.startTime}. Lead email: ${payload.clientEmail}. Lead phone: ${payload.clientPhone}.`;
   const sendSmsEnabled = options?.sendSms ?? true;
   await Promise.allSettled([
-    sendEmail(payload.clientEmail, "Your PureLuxe appointment was cancelled", text, {
-      html: cancellationLeadHtml(payload.date, payload.startTime),
+    sendEmail(payload.clientEmail, "Your PureLuxe appointment was cancelled", emailText, {
+      html: cancellationLeadHtml(payload.date, payload.startTime, rebookUrl),
     }),
     sendEmail(env.adminAlertEmail, "PureLuxe booking cancelled", adminText),
     ...(sendSmsEnabled ? [sendSms(payload.clientPhone, text)] : []),
@@ -360,14 +378,7 @@ export async function sendRescheduleInvite(
   payload: { clientName: string; clientEmail: string; clientPhone: string; address?: string },
   options?: { sendSms?: boolean },
 ) {
-  const params = new URLSearchParams({
-    name: payload.clientName,
-    phone: payload.clientPhone,
-    email: payload.clientEmail,
-    qualified: "1",
-    ...(payload.address ? { address: payload.address } : {}),
-  });
-  const bookingLink = `${env.funnelBaseUrl}/book?${params.toString()}`;
+  const bookingLink = rebookLink(payload);
   const smsBody = `Rebook your PureLuxe visit here (details already saved): ${bookingLink}`;
   const htmlBody = emailShell(
     "Rebook Your PureLuxe Visit",

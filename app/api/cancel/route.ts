@@ -22,7 +22,7 @@ export async function POST(request: Request) {
 
     const { data: appointment, error: fetchError } = await supabaseAdmin
       .from("appointments")
-      .select("id,client_email,client_phone,date,start_time,google_event_id")
+      .select("id,client_name,client_email,client_phone,address,date,start_time,google_event_id")
       .eq("id", appointmentId)
       .maybeSingle();
 
@@ -50,6 +50,8 @@ export async function POST(request: Request) {
     }
 
     await sendCancellationNotifications({
+      clientName: appointment.client_name,
+      address: appointment.address,
       clientEmail: appointment.client_email,
       clientPhone: appointment.client_phone,
       date: appointment.date,

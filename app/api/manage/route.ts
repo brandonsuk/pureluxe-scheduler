@@ -199,6 +199,8 @@ export async function POST(request: Request) {
   }
 
   await sendCancellationNotifications({
+    clientName: a.client_name,
+    address: a.address,
     clientEmail: a.client_email,
     clientPhone: a.client_phone,
     date: a.date,

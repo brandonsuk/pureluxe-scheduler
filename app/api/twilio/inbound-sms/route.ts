@@ -1,7 +1,7 @@
 import twilio from "twilio";
 import { env } from "@/lib/env";
 import { cancelCalendarEvent, cancelCalendarEventByAppointmentId, createCalendarEvent } from "@/lib/google-calendar";
-import { sendCancellationNotifications, sendRescheduleInvite } from "@/lib/notifications";
+import { sendCancellationNotifications } from "@/lib/notifications";
 import { fetchDayAppointments, validateCandidateSlot } from "@/lib/scheduler";
 import { supabaseAdmin } from "@/lib/supabase";
 import { addMins, todayIsoDate } from "@/lib/time";
@@ -302,19 +302,15 @@ export async function POST(request: Request) {
   }
 
   await sendCancellationNotifications({
+    clientName: nextAppt.client_name,
+    address: nextAppt.address,
     clientEmail: nextAppt.client_email,
     clientPhone: nextAppt.client_phone,
     date: nextAppt.date,
     startTime: nextAppt.start_time,
   }, { sendSms: false });
 
-  // Send reschedule invite email (SMS is handled by the Twilio XML reply below)
-  sendRescheduleInvite({
-    clientName: nextAppt.client_name || "there",
-    clientEmail: nextAppt.client_email,
-    clientPhone: nextAppt.client_phone,
-    address: nextAppt.address,
-  }, { sendSms: false }).catch(() => {});
+  // The cancellation email carries the Rebook button; the SMS rebook link is the Twilio XML reply below.
 
   const rescheduleParams = new URLSearchParams({
     name: nextAppt.client_name || "",
