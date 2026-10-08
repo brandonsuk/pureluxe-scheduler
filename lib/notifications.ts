@@ -2,11 +2,13 @@ import { Resend } from "resend";
 import twilio from "twilio";
 import { env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase";
+import { manageUrl } from "@/lib/manage-links";
 
 const resend = env.resendApiKey ? new Resend(env.resendApiKey) : null;
 const twilioClient = env.twilioSid && env.twilioAuthToken ? twilio(env.twilioSid, env.twilioAuthToken) : null;
 
 type BookingPayload = {
+  appointmentId?: string;
   clientName: string;
   clientEmail: string;
   clientPhone: string;
@@ -54,6 +56,22 @@ function emailShell(title: string, bodyHtml: string): string {
 </html>`;
 }
 
+// Cancel / Reschedule buttons for customer emails (signed links to /api/manage).
+function manageButtonsHtml(appointmentId: string): string {
+  return `
+    <table role="presentation" cellspacing="0" cellpadding="0" style="margin:18px 0 0 0;">
+      <tr>
+        <td style="padding:0 10px 10px 0;"><a href="${manageUrl(appointmentId, "reschedule")}" style="display:inline-block;background:#d5b36a;color:#171717;font-weight:700;padding:12px 22px;border-radius:8px;text-decoration:none;font-size:15px;">Reschedule</a></td>
+        <td style="padding:0 0 10px 0;"><a href="${manageUrl(appointmentId, "cancel")}" style="display:inline-block;background:#ffffff;color:#171717;font-weight:700;padding:11px 21px;border-radius:8px;text-decoration:none;font-size:15px;border:1px solid #171717;">Cancel visit</a></td>
+      </tr>
+    </table>`;
+}
+
+function manageLinksText(appointmentId?: string): string {
+  if (!appointmentId) return "Reply with the word CA to this email if you need to cancel your appointment.";
+  return `Need to change it? Reschedule: ${manageUrl(appointmentId, "reschedule")}\nCancel: ${manageUrl(appointmentId, "cancel")}`;
+}
+
 function bookingLeadHtml(payload: BookingPayload): string {
   return emailShell(
     "Booking Confirmed",
@@ -69,7 +87,7 @@ function bookingLeadHtml(payload: BookingPayload): string {
       </td></tr>
     </table>
     <p style="margin:16px 0 8px 0;color:#2f2f2f;line-height:1.6;">Thomas will be coming to quote. If needed, call <strong>07803424399</strong>.</p>
-    <p style="margin:0;color:#2f2f2f;line-height:1.6;">To cancel by email, reply with <strong>CA</strong>.</p>
+    ${payload.appointmentId ? manageButtonsHtml(payload.appointmentId) : `<p style="margin:0;color:#2f2f2f;line-height:1.6;">To cancel by email, reply with <strong>CA</strong>.</p>`}
   `,
   );
 }
@@ -90,7 +108,7 @@ export async function sendBookingNotifications(payload: BookingPayload) {
 
 Thomas will be coming to quote, his phone number is 07803424399 incase you need it.
 
-Reply with the word CA to this email if you need to cancel your appointment.`;
+${manageLinksText(payload.appointmentId)}`;
   const leadSmsText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins), ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
   const adminText = `New booking: ${payload.clientName}, ${payload.date} ${payload.startTime}, ${payload.address}, ${payload.durationMins} mins, readiness: ${payload.readinessLevel}.`;
 
@@ -233,6 +251,7 @@ export function reminderSchedulingStub() {
 }
 
 type ReminderPayload = {
+  appointmentId?: string;
   clientName: string;
   clientEmail: string;
   clientPhone: string;
@@ -254,7 +273,9 @@ function reminder24hHtml(payload: ReminderPayload): string {
         <p style="margin:0;"><strong>Address:</strong> ${payload.address}</p>
       </td></tr>
     </table>
-    <p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Thomas' number is <strong>07803424399</strong> if you need to reach him. Reply <strong>CA</strong> to cancel.</p>
+    ${payload.appointmentId
+      ? `<p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Thomas' number is <strong>07803424399</strong> if you need to reach him. Can't make it? Reschedule or cancel below.</p>${manageButtonsHtml(payload.appointmentId)}`
+      : `<p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Thomas' number is <strong>07803424399</strong> if you need to reach him. Reply <strong>CA</strong> to cancel.</p>`}
   `,
   );
 }
@@ -262,7 +283,9 @@ function reminder24hHtml(payload: ReminderPayload): string {
 export async function sendReminder24h(payload: ReminderPayload) {
   const smsBody = `Your PureLuxe quote visit is tomorrow at ${payload.startTime}. Reply "YES" by 8am to confirm you'll be in.`;
   // Email can't handle a YES reply, so it keeps the fuller details + cancel option.
-  const emailBody = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
+  const emailBody = payload.appointmentId
+    ? `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Thomas 07803424399.\n\n${manageLinksText(payload.appointmentId)}`
+    : `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
   await Promise.allSettled([
     sendSms(payload.clientPhone, smsBody),
     sendEmail(payload.clientEmail, "Reminder: Your PureLuxe Visit Tomorrow", emailBody, {

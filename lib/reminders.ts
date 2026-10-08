@@ -59,6 +59,7 @@ export async function runReminderCheck(): Promise<{
     if (appt.reminder_24h_sent_at) continue;
 
     await sendReminder24h({
+      appointmentId: appt.id,
       clientName: appt.client_name,
       clientEmail: appt.client_email,
       clientPhone: appt.client_phone,

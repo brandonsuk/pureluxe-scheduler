@@ -82,12 +82,16 @@ export async function POST(request: Request) {
     const today = new Date().toISOString().slice(0, 10);
     const { data: existingBookings } = await supabaseAdmin
       .from("appointments")
-      .select("id, google_event_id, thomas_event_id")
+      .select("id, google_event_id, thomas_event_id, reschedule_count")
       .eq("status", "confirmed")
       .gte("date", today)
       .or(`client_phone.eq.${payload.client_phone},client_email.eq.${payload.client_email}`);
 
+    // Rebooking over an upcoming visit counts as a reschedule (max is enforced on the manage page).
+    let rescheduleCount = 0;
     if (existingBookings && existingBookings.length > 0) {
+      rescheduleCount =
+        Math.max(...existingBookings.map((b: { reschedule_count?: number | null }) => b.reschedule_count ?? 0)) + 1;
       const ids = existingBookings.map((b: { id: string }) => b.id);
       await supabaseAdmin.from("appointments").update({ status: "cancelled" }).in("id", ids);
       for (const booking of existingBookings as { id: string; google_event_id?: string | null; thomas_event_id?: string | null }[]) {
@@ -120,6 +124,7 @@ export async function POST(request: Request) {
         lng: payload.lng,
         readiness_level: payload.readiness_level,
         status: "confirmed",
+        reschedule_count: rescheduleCount,
       })
       .select("*")
       .single();
@@ -181,6 +186,7 @@ export async function POST(request: Request) {
     }
 
     await sendBookingNotifications({
+      appointmentId: data.id,
       clientName: payload.client_name,
       clientEmail: payload.client_email,
       clientPhone: payload.client_phone,
