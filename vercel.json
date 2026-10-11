@@ -10,7 +10,7 @@
     },
     {
       "path": "/api/abandoned-lead-check",
-      "schedule": "*/15 * * * *"
+      "schedule": "*/5 * * * *"
     },
     {
       "path": "/api/open-slots-sync-check",

@@ -24,9 +24,48 @@ type AbandonedTrackerRow = {
   lead_session_id: string;
   reminder_sent_at: string | null;
   follow_up_2_sent_at: string | null;
+  follow_up_3_sent_at: string | null;
   suppressed_reason: string | null;
   geocoded_out_of_area: boolean | null;
 };
+
+// Follow-up SMS timing (Brandon, 11 Oct 2026):
+//   text 1: 10 min after the lead goes quiet (cron runs every 5 min)
+//   text 2: 3 hours after text 1
+//   text 3: 7pm UK time on the day after text 1
+//   no texts in quiet hours, 11pm to 6am UK (anything due waits until 6am)
+const FIRST_TEXT_AFTER_MINS = 10;
+const FOLLOW_UP_2_DELAY_MS = 3 * 60 * 60 * 1000;
+const FOLLOW_UP_3_HOUR = 19;
+const QUIET_START_HOUR = 23;
+const QUIET_END_HOUR = 6;
+// Never continue a sequence for leads older than this (protects stale rows).
+const MAX_SEQUENCE_AGE_MS = 72 * 60 * 60 * 1000;
+
+function ukParts(date: Date): { ymd: string; hour: number } {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: env.googleCalendarTimezone || "Europe/London",
+    year: "numeric", month: "2-digit", day: "2-digit", hour: "2-digit", hour12: false,
+  }).formatToParts(date);
+  const get = (type: string) => parts.find((p) => p.type === type)?.value || "";
+  return { ymd: `${get("year")}-${get("month")}-${get("day")}`, hour: Number(get("hour")) % 24 };
+}
+
+function isQuietHours(now: Date): boolean {
+  const { hour } = ukParts(now);
+  return hour >= QUIET_START_HOUR || hour < QUIET_END_HOUR;
+}
+
+// True once it's 7pm (UK) or later on any day after the day text 1 was sent.
+function isFollowUp3Due(firstSentAtIso: string, now: Date): boolean {
+  const first = ukParts(new Date(firstSentAtIso));
+  const current = ukParts(now);
+  if (current.ymd <= first.ymd) return false;
+  if (current.ymd > first.ymd && current.hour >= FOLLOW_UP_3_HOUR) return true;
+  // Two or more days later (e.g. text 2 was held by quiet hours): send once out of quiet hours.
+  const dayAfter = new Date(Date.parse(`${first.ymd}T12:00:00Z`) + 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  return current.ymd > dayAfter;
+}
 
 function normalizePhoneForMatch(phone: string): string {
   return phone.replace(/[^\d+]/g, "");
@@ -89,7 +128,7 @@ async function loadExistingTrackers(sessionIds: string[]): Promise<Map<string, A
 
   const { data, error } = await supabaseAdmin
     .from("abandoned_followups")
-    .select("lead_session_id,reminder_sent_at,follow_up_2_sent_at,suppressed_reason,geocoded_out_of_area")
+    .select("lead_session_id,reminder_sent_at,follow_up_2_sent_at,follow_up_3_sent_at,suppressed_reason,geocoded_out_of_area")
     .in("lead_session_id", sessionIds);
 
   if (error) throw new Error(error.message);
@@ -121,6 +160,7 @@ async function upsertTracker(row: {
   is_disqualified: boolean;
   reminder_sent_at?: string | null;
   follow_up_2_sent_at?: string | null;
+  follow_up_3_sent_at?: string | null;
   suppressed_reason?: string | null;
   geocoded_out_of_area?: boolean | null;
 }) {
@@ -142,6 +182,8 @@ export async function runAbandonedLeadCheck(): Promise<{
   eligible: number;
   sent: number;
   follow_up_2_sent: number;
+  follow_up_3_sent: number;
+  quiet_hours: boolean;
   suppressed_booked: number;
   suppressed_disqualified: number;
   suppressed_out_of_area: number;
@@ -149,7 +191,17 @@ export async function runAbandonedLeadCheck(): Promise<{
   suppressed_invalid_phone: number;
   send_failed: number;
 }> {
-  const thresholdDate = subMinutes(new Date(), 20);
+  const now = new Date();
+  const thresholdDate = subMinutes(now, FIRST_TEXT_AFTER_MINS);
+
+  // Quiet hours: send nothing; anything due goes out on the first run after 6am.
+  if (isQuietHours(now)) {
+    return {
+      scanned: 0, eligible: 0, sent: 0, follow_up_2_sent: 0, follow_up_3_sent: 0, quiet_hours: true,
+      suppressed_booked: 0, suppressed_disqualified: 0, suppressed_out_of_area: 0,
+      suppressed_already_sent: 0, suppressed_invalid_phone: 0, send_failed: 0,
+    };
+  }
 
   const { data, error } = await supabaseAdmin
     .from("abandoned_followups")
@@ -176,13 +228,13 @@ export async function runAbandonedLeadCheck(): Promise<{
   let eligible = 0;
   let sent = 0;
   let followUp2Sent = 0;
+  let followUp3Sent = 0;
   let suppressedBooked = 0;
   let suppressedDisqualified = 0;
   let suppressedOutOfArea = 0;
   let suppressedAlreadySent = 0;
   let suppressedInvalidPhone = 0;
   let sendFailed = 0;
-  const FOLLOW_UP_2_DELAY_MS = 24 * 60 * 60 * 1000;
   const postcodeAreaCache = new Map<string, boolean>(); // postcode → outOfArea
 
   for (const row of latestRows) {
@@ -228,61 +280,59 @@ export async function runAbandonedLeadCheck(): Promise<{
     }
 
     if (tracker?.reminder_sent_at) {
-      // First message already sent — check if we should send the second follow-up
-      if (!tracker.follow_up_2_sent_at) {
-        const firstSentAt = Date.parse(tracker.reminder_sent_at);
-        const readyForSecond = Date.now() - firstSentAt >= FOLLOW_UP_2_DELAY_MS;
+      // Text 1 already sent: decide whether text 2 or text 3 is due.
+      const firstSentAt = tracker.reminder_sent_at;
+      const tooOld = now.getTime() - Date.parse(firstSentAt) > MAX_SEQUENCE_AGE_MS;
+      const wantSecond = !tracker.follow_up_2_sent_at
+        && now.getTime() - Date.parse(firstSentAt) >= FOLLOW_UP_2_DELAY_MS;
+      const wantThird = Boolean(tracker.follow_up_2_sent_at) && !tracker.follow_up_3_sent_at
+        && isFollowUp3Due(firstSentAt, now);
 
-        if (readyForSecond) {
-          // Check they still haven't booked before sending second message
-          if (await hasUpcomingConfirmedBooking(clientPhone)) {
-            suppressedBooked += 1;
-            await upsertTracker({
-              lead_session_id: leadSessionId,
-              submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
-              client_name: clientName, client_phone: clientPhone, client_email: clientEmail,
-              postcode, current_step: currentStep, last_activity_at: lastActivityAt,
-              is_disqualified: false, suppressed_reason: "booked",
-              reminder_sent_at: tracker.reminder_sent_at,
-            });
-            continue;
-          }
-
-          try {
-            await sendAbandonedLeadFollowUp({
-              clientName, clientPhone, clientEmail,
-              resumeLink: buildResumeLink(leadSessionId),
-            });
-            await markAirtableAbandonedSmsSent(clientPhone, clientEmail);
-            const sentAt = new Date().toISOString();
-            await upsertTracker({
-              lead_session_id: leadSessionId,
-              submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
-              client_name: clientName, client_phone: clientPhone, client_email: clientEmail,
-              postcode, current_step: currentStep, last_activity_at: lastActivityAt,
-              is_disqualified: false, suppressed_reason: "already_sent",
-              reminder_sent_at: tracker.reminder_sent_at,
-              follow_up_2_sent_at: sentAt,
-            });
-            followUp2Sent += 1;
-          } catch (error) {
-            sendFailed += 1;
-            await upsertTracker({
-              lead_session_id: leadSessionId,
-              submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
-              client_name: clientName, client_phone: clientPhone, client_email: clientEmail,
-              postcode, current_step: currentStep, last_activity_at: lastActivityAt,
-              is_disqualified: false,
-              suppressed_reason: error instanceof Error ? `send_failed:${error.message}` : "send_failed",
-              reminder_sent_at: tracker.reminder_sent_at,
-            });
-          }
-          continue;
-        }
+      if (tooOld || (!wantSecond && !wantThird)) {
+        suppressedAlreadySent += 1;
+        continue;
       }
 
-      // Second already sent or 24h not yet elapsed — fully suppressed
-      suppressedAlreadySent += 1;
+      const base = {
+        lead_session_id: leadSessionId,
+        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
+        client_name: clientName, client_phone: clientPhone, client_email: clientEmail,
+        postcode, current_step: currentStep, last_activity_at: lastActivityAt,
+        is_disqualified: false,
+        reminder_sent_at: firstSentAt,
+        follow_up_2_sent_at: tracker.follow_up_2_sent_at,
+        follow_up_3_sent_at: tracker.follow_up_3_sent_at,
+      };
+
+      // Don't chase people who have booked since.
+      if (await hasUpcomingConfirmedBooking(clientPhone)) {
+        suppressedBooked += 1;
+        await upsertTracker({ ...base, suppressed_reason: "booked" });
+        continue;
+      }
+
+      try {
+        await sendAbandonedLeadFollowUp({
+          clientName, clientPhone, clientEmail,
+          resumeLink: buildResumeLink(leadSessionId),
+        });
+        await markAirtableAbandonedSmsSent(clientPhone, clientEmail);
+        const sentAt = new Date().toISOString();
+        if (wantSecond) {
+          // Still in the sequence: text 3 comes later.
+          await upsertTracker({ ...base, follow_up_2_sent_at: sentAt, suppressed_reason: null });
+          followUp2Sent += 1;
+        } else {
+          await upsertTracker({ ...base, follow_up_3_sent_at: sentAt, suppressed_reason: "already_sent" });
+          followUp3Sent += 1;
+        }
+      } catch (error) {
+        sendFailed += 1;
+        await upsertTracker({
+          ...base,
+          suppressed_reason: error instanceof Error ? `send_failed:${error.message}` : "send_failed",
+        });
+      }
       continue;
     }
 
@@ -416,6 +466,8 @@ export async function runAbandonedLeadCheck(): Promise<{
     eligible,
     sent,
     follow_up_2_sent: followUp2Sent,
+    follow_up_3_sent: followUp3Sent,
+    quiet_hours: false,
     suppressed_booked: suppressedBooked,
     suppressed_disqualified: suppressedDisqualified,
     suppressed_out_of_area: suppressedOutOfArea,
