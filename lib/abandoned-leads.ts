@@ -278,6 +278,11 @@ export async function runAbandonedLeadCheck(): Promise<{
       sendFailed += 1;
       continue;
     }
+    // Sequence finished (text 3 sent, or text 2 under the old 20min/24h rules).
+    if (tracker?.suppressed_reason === "already_sent") {
+      suppressedAlreadySent += 1;
+      continue;
+    }
 
     if (tracker?.reminder_sent_at) {
       // Text 1 already sent: decide whether text 2 or text 3 is due.
