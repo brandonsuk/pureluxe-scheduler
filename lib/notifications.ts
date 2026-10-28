@@ -236,6 +236,7 @@ async function sendEmail(to: string, subject: string, text: string, options?: { 
   await resend.emails.send({
     from: "PureLuxe <contact@pureluxebathrooms.co.uk>",
     to,
+    replyTo: !isAdminAddress(to) && env.replyToEmail ? env.replyToEmail : undefined,
     subject,
     text,
     html: options?.html,
@@ -246,6 +247,53 @@ async function sendEmail(to: string, subject: string, text: string, options?: { 
       incrementRateLimit(`email:day:${todayKey()}`),
     ]);
   }
+}
+
+// Instant answer when a customer replies asking to move or cancel: their visit plus the
+// same signed Reschedule / Cancel buttons. Sent in the same email thread.
+export async function sendManageVisitReply(payload: {
+  to: string;
+  firstName: string;
+  appointmentId: string;
+  when: string;
+  subject: string;
+  inReplyTo?: string;
+}): Promise<boolean> {
+  if (!resend) return false;
+  const allowed = await checkEmailAllowed(payload.to);
+  if (!allowed) return false;
+  const hi = payload.firstName ? `Hi ${payload.firstName}` : "Hi";
+  const text = `${hi}, thanks for your message. You can move or cancel your visit on ${payload.when} in one tap below. It only takes a minute.
+
+${manageLinksText(payload.appointmentId)}
+
+We've also passed your message to Thomas, so if you asked anything else he'll be in touch. You can reach him on 07803424399.
+
+PureLuxe Bathrooms`;
+  const html = emailShell(
+    "Your PureLuxe visit",
+    `
+    <p style="margin:0 0 14px 0;color:#2f2f2f;line-height:1.6;">${hi}, thanks for your message. You can move or cancel your visit on <strong>${payload.when}</strong> in one tap below. It only takes a minute.</p>
+    ${manageButtonsHtml(payload.appointmentId)}
+    <p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">We've also passed your message to Thomas, so if you asked anything else he'll be in touch. You can reach him on <strong>07803424399</strong>.</p>
+    <p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">PureLuxe Bathrooms</p>
+  `,
+  );
+  const subject = /^re:/i.test(payload.subject) ? payload.subject : `Re: ${payload.subject || "Your PureLuxe visit"}`;
+  await resend.emails.send({
+    from: "PureLuxe <contact@pureluxebathrooms.co.uk>",
+    to: payload.to,
+    replyTo: env.replyToEmail || undefined,
+    subject,
+    text,
+    html,
+    headers: payload.inReplyTo ? { "In-Reply-To": payload.inReplyTo, References: payload.inReplyTo } : undefined,
+  });
+  await Promise.allSettled([
+    incrementRateLimit(`email:recipient:${payload.to}`),
+    incrementRateLimit(`email:day:${todayKey()}`),
+  ]);
+  return true;
 }
 
 async function sendSms(to: string, body: string) {

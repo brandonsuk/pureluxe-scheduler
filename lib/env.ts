@@ -26,6 +26,9 @@ export const env = {
   twilioPhoneNumber: process.env.TWILIO_PHONE_NUMBER || "",
   resendApiKey: process.env.RESEND_API_KEY || "",
   resendWebhookSecret: process.env.RESEND_WEBHOOK_SECRET || "",
+  // Customer emails get this Reply-To so replies reach /api/resend/inbound-email. Unset = replies go to contact@.
+  replyToEmail: process.env.REPLY_TO_EMAIL || "",
+  anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
   googleCalendarId: process.env.GOOGLE_CALENDAR_ID || "",
   googleOpenSlotsCalendarId: process.env.GOOGLE_OPEN_SLOTS_CALENDAR_ID || "",
   googleServiceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "",
