@@ -71,7 +71,7 @@ function normalizePhoneForMatch(phone: string): string {
   return phone.replace(/[^\d+]/g, "");
 }
 
-function phoneCandidates(rawPhone: string): string[] {
+export function phoneCandidates(rawPhone: string): string[] {
   const normalized = normalizePhoneForMatch(rawPhone);
   const out = new Set<string>([normalized]);
   const digitsOnly = normalized.replace(/^\+/, "");
@@ -119,7 +119,7 @@ function latestBySession(rows: LeadProgressRow[]): LeadProgressRow[] {
   return [...bySession.values()];
 }
 
-function buildResumeLink(leadSessionId: string): string {
+export function buildResumeLink(leadSessionId: string): string {
   return `${env.funnelBaseUrl.replace(/\/$/, "")}/resume?session=${encodeURIComponent(leadSessionId)}`;
 }
 
@@ -278,8 +278,9 @@ export async function runAbandonedLeadCheck(): Promise<{
       sendFailed += 1;
       continue;
     }
-    // Sequence finished (text 3 sent, or text 2 under the old 20min/24h rules).
-    if (tracker?.suppressed_reason === "already_sent") {
+    // Sequence finished (text 3 sent, or text 2 under the old 20min/24h rules), or the
+    // lead replied asking us to stop (set by the inbound email route).
+    if (tracker?.suppressed_reason === "already_sent" || tracker?.suppressed_reason === "opted_out") {
       suppressedAlreadySent += 1;
       continue;
     }

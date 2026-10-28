@@ -29,6 +29,9 @@ export const env = {
   // Customer emails get this Reply-To so replies reach /api/resend/inbound-email. Unset = replies go to contact@.
   replyToEmail: process.env.REPLY_TO_EMAIL || "",
   anthropicApiKey: process.env.ANTHROPIC_API_KEY || "",
+  // Smarter email replies (ask for postcode, booking link, opt-out): "all", a comma list of
+  // test sender addresses, or empty for off (then only move/cancel replies are sent).
+  smartReplies: (process.env.SMART_REPLIES || "").trim().toLowerCase(),
   googleCalendarId: process.env.GOOGLE_CALENDAR_ID || "",
   googleOpenSlotsCalendarId: process.env.GOOGLE_OPEN_SLOTS_CALENDAR_ID || "",
   googleServiceAccountEmail: process.env.GOOGLE_SERVICE_ACCOUNT_EMAIL || "",

@@ -249,33 +249,127 @@ async function sendEmail(to: string, subject: string, text: string, options?: { 
   }
 }
 
-// Instant answer when a customer replies asking to move or cancel: their visit plus the
-// same signed Reschedule / Cancel buttons. Sent in the same email thread.
-export async function sendManageVisitReply(payload: {
+// Automatic answers to customer replies (see app/api/resend/inbound-email). Each one is
+// sent in the same email thread and never changes a booking by itself.
+export type CustomerReplyKind =
+  | "manage" // asked to move or cancel, visit found: Reschedule / Cancel buttons
+  | "visit_details" // asked about their visit, visit found: when it is + buttons
+  | "already_booked" // wants to book but already has a visit: when it is + buttons
+  | "ask_details" // no visit under this email: ask for the postcode and mobile they booked with
+  | "no_visit_found" // still no upcoming visit after their details: offer to book
+  | "book" // wants to book, no visit: booking button
+  | "opted_out"; // asked us to stop: confirm
+
+const THOMAS_LINE = "We've also passed your message to Thomas, so if you asked anything else he'll be in touch. You can reach him on **07803424399**.";
+
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
+}
+
+function bookButtonHtml(url: string): string {
+  return `
+    <table role="presentation" cellspacing="0" cellpadding="0" style="margin:18px 0 0 0;">
+      <tr><td><a href="${url}" style="display:inline-block;background:#d5b36a;color:#171717;font-weight:700;padding:12px 22px;border-radius:8px;text-decoration:none;font-size:15px;">Book my free visit</a></td></tr>
+    </table>`;
+}
+
+function customerReplyContent(p: {
+  kind: CustomerReplyKind;
+  hi: string;
+  appointmentId?: string;
+  when?: string;
+  bookUrl?: string;
+}): { paragraphs: string[]; action?: { html: string; text: string }; closing?: string } {
+  const visitButtons = p.appointmentId
+    ? { html: manageButtonsHtml(p.appointmentId), text: manageLinksText(p.appointmentId) }
+    : undefined;
+  const bookButton = p.bookUrl ? { html: bookButtonHtml(p.bookUrl), text: `Book my free visit: ${p.bookUrl}` } : undefined;
+  switch (p.kind) {
+    case "manage":
+      return {
+        paragraphs: [`${p.hi}, thanks for your message. You can move or cancel your visit on **${p.when}** in one tap below. It only takes a minute.`],
+        action: visitButtons,
+        closing: THOMAS_LINE,
+      };
+    case "visit_details":
+      return {
+        paragraphs: [`${p.hi}, thanks for your message. Your free home visit is booked for **${p.when}**. If you need to move or cancel it, you can do that in one tap below.`],
+        action: visitButtons,
+        closing: THOMAS_LINE,
+      };
+    case "already_booked":
+      return {
+        paragraphs: [`${p.hi}, thanks for getting in touch. Good news, you already have a free home visit booked for **${p.when}**. If that time no longer suits, you can change it in one tap below.`],
+        action: visitButtons,
+        closing: THOMAS_LINE,
+      };
+    case "ask_details":
+      return {
+        paragraphs: [
+          `${p.hi}, thanks for your message. We couldn't find a booking under this email address. Could you reply with the postcode and mobile number you booked with? We'll find your visit straight away.`,
+        ],
+        closing: "We've also passed your message to Thomas. You can reach him on **07803424399**.",
+      };
+    case "no_visit_found":
+      return {
+        paragraphs: [
+          `${p.hi}, thanks for getting back to us. We couldn't find an upcoming visit for those details. It may have already taken place or been cancelled.`,
+          "If you'd like a new free home visit, you can book one in about a minute below.",
+        ],
+        action: bookButton,
+        closing: "We've also passed your message to Thomas so he can check for you. You can reach him on **07803424399**.",
+      };
+    case "book":
+      return {
+        paragraphs: [`${p.hi}, thanks for getting in touch. You can book your free home visit in about a minute below and pick a time that suits you.`],
+        action: bookButton,
+        closing: THOMAS_LINE,
+      };
+    case "opted_out":
+      return {
+        paragraphs: [
+          `${p.hi}, no problem at all. We've taken you off our follow-up list, so we won't send you any more reminders about booking a visit.`,
+          "If you change your mind, just reply to this email.",
+        ],
+      };
+  }
+}
+
+export async function sendCustomerReply(payload: {
+  kind: CustomerReplyKind;
   to: string;
   firstName: string;
-  appointmentId: string;
-  when: string;
   subject: string;
   inReplyTo?: string;
+  appointmentId?: string;
+  when?: string;
+  bookUrl?: string;
 }): Promise<boolean> {
   if (!resend) return false;
   const allowed = await checkEmailAllowed(payload.to);
   if (!allowed) return false;
-  const hi = payload.firstName ? `Hi ${payload.firstName}` : "Hi";
-  const text = `${hi}, thanks for your message. You can move or cancel your visit on ${payload.when} in one tap below. It only takes a minute.
-
-${manageLinksText(payload.appointmentId)}
-
-We've also passed your message to Thomas, so if you asked anything else he'll be in touch. You can reach him on 07803424399.
-
-PureLuxe Bathrooms`;
+  const name = payload.firstName.trim();
+  const content = customerReplyContent({
+    kind: payload.kind,
+    hi: name ? `Hi ${name}` : "Hi there",
+    appointmentId: payload.appointmentId,
+    when: payload.when,
+    bookUrl: payload.bookUrl,
+  });
+  const plain = (s: string) => s.replace(/\*\*/g, "");
+  const rich = (s: string) => escapeHtml(s).replace(/\*\*(.+?)\*\*/g, "<strong>$1</strong>");
+  const text = [
+    ...content.paragraphs.map(plain),
+    ...(content.action ? [content.action.text] : []),
+    ...(content.closing ? [content.closing] : []),
+    "PureLuxe Bathrooms",
+  ].join("\n\n");
   const html = emailShell(
     "Your PureLuxe visit",
     `
-    <p style="margin:0 0 14px 0;color:#2f2f2f;line-height:1.6;">${hi}, thanks for your message. You can move or cancel your visit on <strong>${payload.when}</strong> in one tap below. It only takes a minute.</p>
-    ${manageButtonsHtml(payload.appointmentId)}
-    <p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">We've also passed your message to Thomas, so if you asked anything else he'll be in touch. You can reach him on <strong>07803424399</strong>.</p>
+    ${content.paragraphs.map((s) => `<p style="margin:0 0 14px 0;color:#2f2f2f;line-height:1.6;">${rich(s)}</p>`).join("\n    ")}
+    ${content.action ? content.action.html : ""}
+    ${content.closing ? `<p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">${rich(content.closing)}</p>` : ""}
     <p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">PureLuxe Bathrooms</p>
   `,
   );
