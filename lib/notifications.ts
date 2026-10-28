@@ -361,7 +361,7 @@ export async function sendCustomerReply(payload: {
   const text = [
     ...content.paragraphs.map(plain),
     ...(content.action ? [content.action.text] : []),
-    ...(content.closing ? [content.closing] : []),
+    ...(content.closing ? [plain(content.closing)] : []),
     "PureLuxe Bathrooms",
   ].join("\n\n");
   const html = emailShell(
