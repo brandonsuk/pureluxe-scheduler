@@ -2,7 +2,7 @@ import { subMinutes } from "date-fns";
 import { geocodeAddress, isWithinServiceArea } from "@/lib/address";
 import { env } from "@/lib/env";
 import { sendAbandonedLeadFollowUp } from "@/lib/notifications";
-import { markAirtableAbandonedSmsSent } from "@/lib/airtable-sync";
+import { markAirtableAbandonedSmsSent, markAirtableLeadTilingDisqualified } from "@/lib/airtable-sync";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDateInTimeZone } from "@/lib/time";
 
@@ -344,6 +344,16 @@ export async function runAbandonedLeadCheck(): Promise<{
 
     if (isDisqualified(row)) {
       suppressedDisqualified += 1;
+      // First run that sees this lead as disqualified: make sure Airtable shows it too
+      // (catch-up for /api/lead-progress when Make hadn't created the record yet).
+      // Later runs skip this, as the row is then marked "disqualified".
+      if (tracker?.suppressed_reason !== "disqualified") {
+        const updated = await markAirtableLeadTilingDisqualified(leadSessionId, clientPhone, clientEmail);
+        if (!updated) {
+          // eslint-disable-next-line no-console
+          console.warn(`abandoned-lead-check: Airtable tiling update not done for ${leadSessionId}`);
+        }
+      }
       await upsertTracker({
         lead_session_id: leadSessionId,
         submission_id: typeof row.submission_id === "string" ? row.submission_id : null,

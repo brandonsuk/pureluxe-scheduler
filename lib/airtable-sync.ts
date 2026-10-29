@@ -78,6 +78,62 @@ export async function markAirtableAppointmentBooked(
 }
 
 /**
+ * Finds the lead's Airtable record (by lead_session_id first, then phone or
+ * email, newest first), then ticks Disqualified and sets wall_type = "tiling".
+ * The funnel's "Tiling is a must-have" button only reaches /api/lead-progress,
+ * not Make, so without this the lead looks like an in-area drop-off in "Needs
+ * Calling". The abandoned-lead cron runs it once more as a catch-up, in case
+ * Make hadn't created the record yet.
+ *
+ * Returns true if the record was updated, false if not found or not configured.
+ */
+export async function markAirtableLeadTilingDisqualified(
+  leadSessionId: string,
+  phone: string,
+  email: string,
+): Promise<boolean> {
+  if (!env.airtableApiKey) return false;
+
+  // These values come from a public endpoint, so keep quotes out of the formulas.
+  const sessionId = leadSessionId.replace(/[^\w-]/g, "");
+  const cleanEmail = email.toLowerCase().replace(/["\\]/g, "");
+  const fallback = [
+    ...phoneVariants(phone).filter((p) => /^\+?\d+$/.test(p)).map((p) => `{phone}="${p}"`),
+    ...(cleanEmail ? [`{email}="${cleanEmail}"`] : []),
+  ];
+  const formulas = [
+    sessionId ? `{lead_session_id}="${sessionId}"` : "",
+    fallback.length ? `OR(${fallback.join(",")})` : "",
+  ].filter(Boolean);
+
+  try {
+    for (const formula of formulas) {
+      const searchRes = await airtableFetch(
+        `?filterByFormula=${encodeURIComponent(formula)}&maxRecords=1&sort[0][field]=Created Time&sort[0][direction]=desc`,
+      );
+      if (!searchRes.ok) return false;
+      const searchData = (await searchRes.json()) as { records?: { id: string }[] };
+      const record = searchData.records?.[0];
+      if (!record) continue;
+
+      const patchRes = await airtableFetch(`/${record.id}`, {
+        method: "PATCH",
+        body: JSON.stringify({
+          fields: {
+            Disqualified: true,
+            wall_type: "tiling",
+          },
+        }),
+      });
+      return patchRes.ok;
+    }
+    return false;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Finds the Airtable lead record matching the given phone or email, then ticks
  * the "Abandoned SMS Sent" checkbox so the team can see the follow-up was fired.
  * Called automatically after the abandoned-lead SMS is successfully delivered.
