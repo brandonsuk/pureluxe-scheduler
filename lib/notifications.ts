@@ -4,6 +4,10 @@ import { env } from "@/lib/env";
 import { supabaseAdmin } from "@/lib/supabase";
 import { manageUrl } from "@/lib/manage-links";
 
+// Allan, our surveyor, does the quote visits. Customer replies still forward to Tomasz
+// (app/api/twilio/inbound-sms), so only the number shown to customers changes here.
+export const SURVEYOR_PHONE = "07553364028";
+
 const resend = env.resendApiKey ? new Resend(env.resendApiKey) : null;
 const twilioClient = env.twilioSid && env.twilioAuthToken ? twilio(env.twilioSid, env.twilioAuthToken) : null;
 
@@ -86,7 +90,7 @@ function bookingLeadHtml(payload: BookingPayload): string {
         <p style="margin:0;"><strong>Address:</strong> ${payload.address}</p>
       </td></tr>
     </table>
-    <p style="margin:16px 0 8px 0;color:#2f2f2f;line-height:1.6;">Thomas will be coming to quote. If needed, call <strong>07803424399</strong>.</p>
+    <p style="margin:16px 0 8px 0;color:#2f2f2f;line-height:1.6;">Allan, our surveyor, will be coming to quote. If needed, call him on <strong>${SURVEYOR_PHONE}</strong>.</p>
     ${payload.appointmentId ? manageButtonsHtml(payload.appointmentId) : `<p style="margin:0;color:#2f2f2f;line-height:1.6;">To cancel by email, reply with <strong>CA</strong>.</p>`}
   `,
   );
@@ -119,10 +123,10 @@ function cancellationLeadHtml(date: string, startTime: string, rebookUrl: string
 export async function sendBookingNotifications(payload: BookingPayload) {
   const leadEmailText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins) at ${payload.address}.
 
-Thomas will be coming to quote, his phone number is 07803424399 incase you need it.
+Allan, our surveyor, will be coming to quote. His number is ${SURVEYOR_PHONE} in case you need it.
 
 ${manageLinksText(payload.appointmentId)}`;
-  const leadSmsText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins), ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
+  const leadSmsText = `PureLuxe booking confirmed: ${payload.date} at ${payload.startTime} (${payload.durationMins} mins), ${payload.address}. Allan ${SURVEYOR_PHONE}. Reply CA to cancel.`;
   const adminText = `New booking: ${payload.clientName}, ${payload.date} ${payload.startTime}, ${payload.address}, ${payload.durationMins} mins, readiness: ${payload.readinessLevel}.`;
 
   await Promise.allSettled([
@@ -260,7 +264,7 @@ export type CustomerReplyKind =
   | "book" // wants to book, no visit: booking button
   | "opted_out"; // asked us to stop: confirm
 
-const THOMAS_LINE = "We've also passed your message to Thomas, so if you asked anything else he'll be in touch. You can reach him on **07803424399**.";
+const SURVEYOR_LINE = `We've also passed your message to the team, so if you asked anything else we'll be in touch. You can reach Allan, our surveyor, on **${SURVEYOR_PHONE}**.`;
 
 function escapeHtml(value: string): string {
   return value.replace(/[&<>"']/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string);
@@ -289,26 +293,26 @@ function customerReplyContent(p: {
       return {
         paragraphs: [`${p.hi}, thanks for your message. You can move or cancel your visit on **${p.when}** in one tap below. It only takes a minute.`],
         action: visitButtons,
-        closing: THOMAS_LINE,
+        closing: SURVEYOR_LINE,
       };
     case "visit_details":
       return {
         paragraphs: [`${p.hi}, thanks for your message. Your free home visit is booked for **${p.when}**. If you need to move or cancel it, you can do that in one tap below.`],
         action: visitButtons,
-        closing: THOMAS_LINE,
+        closing: SURVEYOR_LINE,
       };
     case "already_booked":
       return {
         paragraphs: [`${p.hi}, thanks for getting in touch. Good news, you already have a free home visit booked for **${p.when}**. If that time no longer suits, you can change it in one tap below.`],
         action: visitButtons,
-        closing: THOMAS_LINE,
+        closing: SURVEYOR_LINE,
       };
     case "ask_details":
       return {
         paragraphs: [
           `${p.hi}, thanks for your message. We couldn't find a booking under this email address. Could you reply with the postcode and mobile number you booked with? We'll find your visit straight away.`,
         ],
-        closing: "We've also passed your message to Thomas. You can reach him on **07803424399**.",
+        closing: `We've also passed your message to the team. You can reach Allan, our surveyor, on **${SURVEYOR_PHONE}**.`,
       };
     case "no_visit_found":
       return {
@@ -317,13 +321,13 @@ function customerReplyContent(p: {
           "If you'd like a new free home visit, you can book one in about a minute below.",
         ],
         action: bookButton,
-        closing: "We've also passed your message to Thomas so he can check for you. You can reach him on **07803424399**.",
+        closing: `We've also passed your message to the team so we can check for you. You can reach Allan, our surveyor, on **${SURVEYOR_PHONE}**.`,
       };
     case "book":
       return {
         paragraphs: [`${p.hi}, thanks for getting in touch. You can book your free home visit in about a minute below and pick a time that suits you.`],
         action: bookButton,
-        closing: THOMAS_LINE,
+        closing: SURVEYOR_LINE,
       };
     case "opted_out":
       return {
@@ -425,7 +429,7 @@ function reminder24hHtml(payload: ReminderPayload): string {
     "Reminder: Your PureLuxe Visit Tomorrow",
     `
     <h2 style="margin:0 0 14px 0;color:#171717;font-size:24px;">Your quote visit is tomorrow</h2>
-    <p style="margin:0 0 18px 0;color:#2f2f2f;line-height:1.6;">Hi ${payload.clientName}, just a reminder that Thomas will be visiting you tomorrow.</p>
+    <p style="margin:0 0 18px 0;color:#2f2f2f;line-height:1.6;">Hi ${payload.clientName}, just a reminder that Allan, our surveyor, will be visiting you tomorrow.</p>
     <table role="presentation" width="100%" cellspacing="0" cellpadding="0" style="border:1px solid #ece3d0;border-radius:10px;background:#fffcf6;">
       <tr><td style="padding:14px 16px;">
         <p style="margin:0 0 8px 0;"><strong>Date:</strong> ${payload.date}</p>
@@ -434,8 +438,8 @@ function reminder24hHtml(payload: ReminderPayload): string {
       </td></tr>
     </table>
     ${payload.appointmentId
-      ? `<p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Thomas' number is <strong>07803424399</strong> if you need to reach him. Can't make it? Reschedule or cancel below.</p>${manageButtonsHtml(payload.appointmentId)}`
-      : `<p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Thomas' number is <strong>07803424399</strong> if you need to reach him. Reply <strong>CA</strong> to cancel.</p>`}
+      ? `<p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Allan's number is <strong>${SURVEYOR_PHONE}</strong> if you need to reach him. Can't make it? Reschedule or cancel below.</p>${manageButtonsHtml(payload.appointmentId)}`
+      : `<p style="margin:16px 0 0 0;color:#2f2f2f;line-height:1.6;">Allan's number is <strong>${SURVEYOR_PHONE}</strong> if you need to reach him. Reply <strong>CA</strong> to cancel.</p>`}
   `,
   );
 }
@@ -444,8 +448,8 @@ export async function sendReminder24h(payload: ReminderPayload) {
   const smsBody = `Your PureLuxe quote visit is tomorrow at ${payload.startTime}. Reply "YES" by 8am to confirm you'll be in.`;
   // Email can't handle a YES reply, so it keeps the fuller details + cancel option.
   const emailBody = payload.appointmentId
-    ? `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Thomas 07803424399.\n\n${manageLinksText(payload.appointmentId)}`
-    : `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
+    ? `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Allan ${SURVEYOR_PHONE}.\n\n${manageLinksText(payload.appointmentId)}`
+    : `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Allan ${SURVEYOR_PHONE}. Reply CA to cancel.`;
   await Promise.allSettled([
     sendSms(payload.clientPhone, smsBody),
     sendEmail(payload.clientEmail, "Reminder: Your PureLuxe Visit Tomorrow", emailBody, {
@@ -456,7 +460,7 @@ export async function sendReminder24h(payload: ReminderPayload) {
 
 /** @deprecated use sendReminder24h */
 export async function sendReminder24hSms(payload: Pick<ReminderPayload, "clientPhone" | "date" | "startTime" | "address">) {
-  const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Thomas 07803424399. Reply CA to cancel.`;
+  const body = `Reminder: your PureLuxe quote visit is tomorrow, ${payload.date} at ${payload.startTime}, ${payload.address}. Allan ${SURVEYOR_PHONE}. Reply CA to cancel.`;
   await sendSms(payload.clientPhone, body);
 }
 

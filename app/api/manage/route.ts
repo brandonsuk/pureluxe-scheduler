@@ -3,7 +3,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDate } from "@/lib/time";
 import { cancelCalendarEvent, cancelCalendarEventByAppointmentId } from "@/lib/google-calendar";
 import { markAirtableAppointmentCancelled } from "@/lib/airtable-sync";
-import { sendCancellationNotifications } from "@/lib/notifications";
+import { SURVEYOR_PHONE, sendCancellationNotifications } from "@/lib/notifications";
 import { MAX_RESCHEDULES, verifyManageSignature } from "@/lib/manage-links";
 
 // Customer "manage your visit" page, linked from the confirmation and reminder emails.
@@ -28,8 +28,6 @@ type Appointment = {
   thomas_event_id: string | null;
   reschedule_count: number | null;
 };
-
-const THOMAS_PHONE = "07803424399";
 
 function esc(value: unknown): string {
   return String(value ?? "")
@@ -87,14 +85,14 @@ function visitBox(a: Appointment): string {
 }
 
 const invalidLink = () =>
-  page("Link not recognised", `<p>Sorry, this link isn't valid. Please call Thomas on <strong>${THOMAS_PHONE}</strong> and he'll sort it for you.</p>`, 400);
+  page("Link not recognised", `<p>Sorry, this link isn't valid. Please call Allan, our surveyor, on <strong>${SURVEYOR_PHONE}</strong> and we'll sort it for you.</p>`, 400);
 
 const notActive = (a: Appointment) =>
   page(
     "This visit is no longer active",
     `<p>This visit has already been cancelled or has passed.</p>
      <p><a href="${esc(rebookUrl(a))}" style="${btn("#d5b36a", "#171717")}">Book a new visit</a></p>
-     <p style="color:#5f5a4f;font-size:14px;">Questions? Call Thomas on <strong>${THOMAS_PHONE}</strong>.</p>`,
+     <p style="color:#5f5a4f;font-size:14px;">Questions? Call Allan, our surveyor, on <strong>${SURVEYOR_PHONE}</strong>.</p>`,
   );
 
 async function loadAppointment(id: string): Promise<Appointment | null> {
@@ -125,7 +123,7 @@ export async function GET(request: Request) {
         "Change your visit",
         `${visitBox(a)}
          <p>This visit has already been moved ${MAX_RESCHEDULES} times, so online rescheduling isn't available for it.</p>
-         <p>Please call or text Thomas on <strong>${THOMAS_PHONE}</strong> and he'll find a time that works.</p>`,
+         <p>Please call or text Allan, our surveyor, on <strong>${SURVEYOR_PHONE}</strong> and we'll find a time that works.</p>`,
       );
     }
     return page(
@@ -176,7 +174,7 @@ export async function POST(request: Request) {
   if (error) {
     // eslint-disable-next-line no-console
     console.error("manage_cancel_failed", error);
-    return page("Something went wrong", `<p>We couldn't cancel online just now. Please call Thomas on <strong>${THOMAS_PHONE}</strong>.</p>`, 500);
+    return page("Something went wrong", `<p>We couldn't cancel online just now. Please call Allan, our surveyor, on <strong>${SURVEYOR_PHONE}</strong>.</p>`, 500);
   }
 
   markAirtableAppointmentCancelled(a.client_phone, a.client_email).catch((e) => {
