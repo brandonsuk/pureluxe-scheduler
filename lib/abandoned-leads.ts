@@ -30,11 +30,11 @@ type AbandonedTrackerRow = {
 };
 
 // Follow-up SMS timing (Brandon, 11 Oct 2026):
-//   text 1: 10 min after the lead goes quiet (cron runs every 5 min)
+//   text 1: 5 min after the lead goes quiet (cron runs every 2 min; 10 min until 9 Nov 2026)
 //   text 2: 3 hours after text 1
 //   text 3: 7pm UK time on the day after text 1
 //   no texts in quiet hours, 11pm to 6am UK (anything due waits until 6am)
-const FIRST_TEXT_AFTER_MINS = 10;
+const FIRST_TEXT_AFTER_MINS = 5;
 const FOLLOW_UP_2_DELAY_MS = 3 * 60 * 60 * 1000;
 const FOLLOW_UP_3_HOUR = 19;
 const QUIET_START_HOUR = 23;
