@@ -69,10 +69,19 @@ export const availableDatesSchema = z.object({
   override_max_drive: z.boolean().optional(),
 });
 
-export const cancelSchema = z.object({
-  appointment_id: z.string().uuid(),
-  admin_password: z.string().min(1),
-});
+// Cancel by appointment_id (admin page) or by the lead's phone/email (CRM).
+// notify defaults to true: the client gets the cancellation text + email.
+export const cancelSchema = z
+  .object({
+    appointment_id: z.string().uuid().optional(),
+    phone: z.string().trim().max(40).optional(),
+    email: z.string().trim().max(200).optional(),
+    notify: z.boolean().optional(),
+    admin_password: z.string().min(1),
+  })
+  .refine((d) => Boolean(d.appointment_id || d.phone || d.email), {
+    message: "appointment_id, phone or email is required",
+  });
 
 export const workingHoursSchema = z.object({
   admin_password: z.string().min(1),
