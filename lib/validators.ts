@@ -103,3 +103,17 @@ export const leadProgressSchema = z.object({
   wall_type: z.string().optional(),
   address: z.string().optional(),
 });
+
+// Funnel analytics event (see app/api/funnel-event). Public endpoint, so every text
+// field is length-capped and the event name is restricted to simple characters.
+export const funnelEventSchema = z.object({
+  lead_session_id: z.string().min(8).max(64),
+  event: z.string().regex(/^[a-z0-9_]{1,40}$/),
+  path: z.string().max(120).optional(),
+  variants: z.record(z.string().max(20), z.string().max(20)).optional(),
+  device: z.enum(["mobile", "tablet", "desktop"]).optional(),
+  viewport_w: z.coerce.number().int().min(0).max(10000).optional(),
+  utm_campaign: z.string().max(120).optional(),
+  ad_id: z.string().max(120).optional(),
+  is_test: z.boolean().optional(),
+});
