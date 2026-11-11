@@ -320,6 +320,11 @@ function pickDiverseSlots(
   return selected;
 }
 
+function addMinutesToTime(time: string, mins: number): string {
+  const total = Math.min(Math.max(timeToMinutes(time) + mins, 0), 23 * 60 + 59);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 export async function validateCandidateSlot(input: SlotInput, existing: TimedBlockWithLoc[]): Promise<ValidationResult> {
   const start = combineDateTime(input.date, input.start_time);
   const end = new Date(start.getTime() + input.duration_mins * 60 * 1000);
@@ -358,12 +363,18 @@ export async function validateCandidateSlot(input: SlotInput, existing: TimedBlo
   let nextDrive: number;
   let directPrevToNext: number;
   try {
+    // Visit-time routing: each leg uses typical traffic for when it is actually driven.
+    // From home, assume leaving ~30 min before the visit; otherwise leave when the previous visit ends.
+    const prevDepart = prev ? prev.end_time.slice(0, 5) : addMinutesToTime(input.start_time, -30);
+    const endTime = addMinutesToTime(input.start_time, input.duration_mins);
     [prevDrive, nextDrive] = await Promise.all([
-      getDriveMinutes(prevLoc, input.location),
-      getDriveMinutes(input.location, nextLoc),
+      getDriveMinutes(prevLoc, input.location, { date: input.date, time: prevDepart }),
+      getDriveMinutes(input.location, nextLoc, { date: input.date, time: endTime }),
     ]);
     const samePrevNext = prevLoc.lat === nextLoc.lat && prevLoc.lng === nextLoc.lng;
-    directPrevToNext = samePrevNext ? 0 : await getDriveMinutes(prevLoc, nextLoc);
+    directPrevToNext = samePrevNext
+      ? 0
+      : await getDriveMinutes(prevLoc, nextLoc, { date: input.date, time: prev ? prevDepart : endTime });
   } catch {
     return { valid: false, reason: "route_unavailable" };
   }
@@ -373,7 +384,11 @@ export async function validateCandidateSlot(input: SlotInput, existing: TimedBlo
   const prevLegFits = prev ? prevDrive <= availableFromPrev : true;
   const nextLegFits = nextDrive <= availableToNext;
 
-  if (!input.overrideMaxDrive && (prevDrive > env.maxDriveMins || nextDrive > env.maxDriveMins)) {
+  // First visit of the day (from home) and last visit (back home) may use the longer edge cap,
+  // so far towns get first/last slots only. Job-to-job legs keep the normal cap.
+  const prevCap = prev ? env.maxDriveMins : env.maxEdgeDriveMins;
+  const nextCap = next ? env.maxDriveMins : env.maxEdgeDriveMins;
+  if (!input.overrideMaxDrive && (prevDrive > prevCap || nextDrive > nextCap)) {
     return { valid: false, reason: "max_drive" };
   }
 

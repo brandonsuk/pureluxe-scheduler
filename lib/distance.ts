@@ -27,23 +27,92 @@ type TomTomRouteResponse = {
 const driveCache = new Map<string, { expiresAt: number; minutes: number }>();
 const inflightDriveRequests = new Map<string, Promise<number>>();
 const CACHE_TTL_MS = 10 * 60 * 1000;
+// Visit-time (departAt) results are typical traffic for a day type + time band, so they keep for hours.
+const BANDED_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const TOMTOM_MIN_INTERVAL_MS = 275;
 
 let lastTomTomRequestAt = 0;
 let tomTomQueue: Promise<void> = Promise.resolve();
 
-function cacheKey(origin: Location, destination: Location): string {
+/** Wall-clock departure in UK local time, e.g. { date: "2026-11-16", time: "08:15" }. */
+export type Departure = { date: string; time: string };
+
+type TimeBand = { id: string; startMins: number; repTime: string };
+
+// Representative departure per band, so every lookup in a band gets the same answer.
+const TIME_BANDS: TimeBand[] = [
+  { id: "early", startMins: 0, repTime: "06:30" },
+  { id: "am-peak", startMins: 7 * 60, repTime: "08:15" },
+  { id: "midday", startMins: 9 * 60 + 30, repTime: "12:00" },
+  { id: "pm-peak", startMins: 15 * 60 + 30, repTime: "17:00" },
+  { id: "evening", startMins: 18 * 60 + 30, repTime: "19:00" },
+];
+
+function bandFor(time: string): TimeBand {
+  const mins = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+  let band = TIME_BANDS[0];
+  for (const b of TIME_BANDS) if (mins >= b.startMins) band = b;
+  return band;
+}
+
+function dayTypeFor(date: string): string {
+  const dow = new Date(`${date}T12:00:00Z`).getUTCDay();
+  return dow === 0 ? "sun" : dow === 6 ? "sat" : "wd";
+}
+
+function addDaysIso(date: string, days: number): string {
+  const d = new Date(`${date}T12:00:00Z`);
+  d.setUTCDate(d.getUTCDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function ukNowWallClock(nowMs: number): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: "Europe/London",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    hour12: false,
+  }).formatToParts(new Date(nowMs));
+  const get = (t: string) => parts.find((p) => p.type === t)?.value || "00";
+  const hour = get("hour") === "24" ? "00" : get("hour");
+  return `${get("year")}-${get("month")}-${get("day")}T${hour}:${get("minute")}`;
+}
+
+/**
+ * Maps a departure to its band and a representative TomTom departAt (UK wall clock, no offset:
+ * TomTom reads it as the origin's local time). The departAt is always in the future: if the
+ * representative time has passed, the same weekday next week is used.
+ */
+export function resolveDeparture(departure: Departure, nowMs = Date.now()): { bandKey: string; departAt: string } {
+  const band = bandFor(departure.time);
+  const bandKey = `${dayTypeFor(departure.date)}:${band.id}`;
+  const minFuture = ukNowWallClock(nowMs + 5 * 60 * 1000);
+  let date = departure.date;
+  while (`${date}T${band.repTime}` <= minFuture) date = addDaysIso(date, 7);
+  return { bandKey, departAt: `${date}T${band.repTime}:00` };
+}
+
+function cacheKey(origin: Location, destination: Location, bandKey?: string): string {
   return [
     origin.lat.toFixed(5),
     origin.lng.toFixed(5),
     destination.lat.toFixed(5),
     destination.lng.toFixed(5),
     env.distanceProvider,
+    bandKey || "live",
   ].join("|");
 }
 
-export async function getDriveMinutes(origin: Location, destination: Location): Promise<number> {
-  const key = cacheKey(origin, destination);
+/**
+ * Drive time in minutes. With a departure, uses TomTom's typical traffic for that day type and
+ * time band (visit-time routing). Without one, uses traffic right now.
+ */
+export async function getDriveMinutes(origin: Location, destination: Location, departure?: Departure): Promise<number> {
+  const resolved = departure ? resolveDeparture(departure) : undefined;
+  const key = cacheKey(origin, destination, resolved?.bandKey);
   const hit = driveCache.get(key);
   if (hit && hit.expiresAt > Date.now()) return hit.minutes;
 
@@ -55,8 +124,8 @@ export async function getDriveMinutes(origin: Location, destination: Location): 
   }
 
   const requestPromise = (async () => {
-    const minutes = await getTomTomDriveMinutes(origin, destination);
-    driveCache.set(key, { minutes, expiresAt: Date.now() + CACHE_TTL_MS });
+    const minutes = await getTomTomDriveMinutes(origin, destination, resolved?.departAt);
+    driveCache.set(key, { minutes, expiresAt: Date.now() + (resolved ? BANDED_CACHE_TTL_MS : CACHE_TTL_MS) });
     return minutes;
   })();
 
@@ -68,9 +137,9 @@ export async function getDriveMinutes(origin: Location, destination: Location): 
   }
 }
 
-async function getTomTomDriveMinutes(origin: Location, destination: Location): Promise<number> {
+async function getTomTomDriveMinutes(origin: Location, destination: Location, departAt?: string): Promise<number> {
   try {
-    return await fetchTomTomRouteMinutes(origin, destination);
+    return await fetchTomTomRouteMinutes(origin, destination, departAt);
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes("MAP_MATCHING_FAILURE")) throw error;
@@ -82,7 +151,7 @@ async function getTomTomDriveMinutes(origin: Location, destination: Location): P
     for (const o of originCandidates) {
       for (const d of destinationCandidates) {
         try {
-          return await fetchTomTomRouteMinutes(o, d);
+          return await fetchTomTomRouteMinutes(o, d, departAt);
         } catch {
           // keep trying
         }
@@ -93,7 +162,7 @@ async function getTomTomDriveMinutes(origin: Location, destination: Location): P
   }
 }
 
-async function fetchTomTomRouteMinutes(origin: Location, destination: Location): Promise<number> {
+async function fetchTomTomRouteMinutes(origin: Location, destination: Location, departAt?: string): Promise<number> {
   await waitForTomTomSlot();
 
   // TomTom routing expects "latitude,longitude"
@@ -103,6 +172,7 @@ async function fetchTomTomRouteMinutes(origin: Location, destination: Location):
   url.searchParams.set("traffic", "true");
   url.searchParams.set("travelMode", "car");
   url.searchParams.set("routeType", "fastest");
+  if (departAt) url.searchParams.set("departAt", departAt);
 
   const response = await fetch(url.toString());
   if (!response.ok) {
