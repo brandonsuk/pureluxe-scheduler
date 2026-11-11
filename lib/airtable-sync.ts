@@ -45,7 +45,7 @@ export async function markAirtableAppointmentBooked(
   if (!env.airtableApiKey) return false;
 
   const variants = phoneVariants(phone);
-  const phoneFormula = variants.map((p) => `{phone}="${p}"`).join(",");
+  const phoneFormula = variants.map((p) => `SUBSTITUTE({phone}," ","")="${p}"`).join(",");
   const formula = `OR(${phoneFormula},{email}="${email.toLowerCase()}")`;
 
   try {
@@ -98,7 +98,7 @@ export async function markAirtableLeadTilingDisqualified(
   const sessionId = leadSessionId.replace(/[^\w-]/g, "");
   const cleanEmail = email.toLowerCase().replace(/["\\]/g, "");
   const fallback = [
-    ...phoneVariants(phone).filter((p) => /^\+?\d+$/.test(p)).map((p) => `{phone}="${p}"`),
+    ...phoneVariants(phone).filter((p) => /^\+?\d+$/.test(p)).map((p) => `SUBSTITUTE({phone}," ","")="${p}"`),
     ...(cleanEmail ? [`{email}="${cleanEmail}"`] : []),
   ];
   const formulas = [
@@ -144,7 +144,7 @@ export async function markAirtableAbandonedSmsSent(phone: string, email: string)
   if (!env.airtableApiKey) return false;
 
   const variants = phoneVariants(phone);
-  const phoneFormula = variants.map((p) => `{phone}="${p}"`).join(",");
+  const phoneFormula = variants.map((p) => `SUBSTITUTE({phone}," ","")="${p}"`).join(",");
   const formula = `OR(${phoneFormula},{email}="${email.toLowerCase()}")`;
 
   try {
@@ -181,7 +181,7 @@ export async function markAirtableAppointmentConfirmed(phone: string): Promise<b
   if (!env.airtableApiKey) return false;
 
   const variants = phoneVariants(phone);
-  const formula = `OR(${variants.map((p) => `{phone}="${p}"`).join(",")})`;
+  const formula = `OR(${variants.map((p) => `SUBSTITUTE({phone}," ","")="${p}"`).join(",")})`;
 
   try {
     const searchRes = await airtableFetch(
@@ -217,7 +217,7 @@ export async function markAirtableAppointmentCancelled(phone: string, email: str
   if (!env.airtableApiKey) return false;
 
   const variants = phoneVariants(phone);
-  const phoneFormula = variants.map((p) => `{phone}="${p}"`).join(",");
+  const phoneFormula = variants.map((p) => `SUBSTITUTE({phone}," ","")="${p}"`).join(",");
   const formula = `AND(OR(${phoneFormula},{email}="${email.toLowerCase()}"),{Booked Appointment}=TRUE())`;
 
   try {
