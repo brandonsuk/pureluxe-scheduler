@@ -54,6 +54,17 @@ function phoneCandidates(rawFrom: string): string[] {
     out.add(`+44${digitsOnly.slice(1)}`);
   }
 
+  // Bookings store numbers in several spaced formats ("+44 7894328018",
+  // "07894 328018"), so match those too or replies never find the booking.
+  const national = digitsOnly.startsWith("44") ? digitsOnly.slice(2) : digitsOnly.replace(/^0/, "");
+  if (national.length === 10) {
+    out.add(`+44 ${national}`);
+    out.add(`+44 ${national.slice(0, 4)} ${national.slice(4)}`);
+    out.add(`0${national.slice(0, 4)} ${national.slice(4)}`);
+    out.add(`0${national.slice(0, 4)} ${national.slice(4, 7)} ${national.slice(7)}`);
+    out.add(`44${national}`);
+  }
+
   return [...out].filter(Boolean);
 }
 
@@ -79,7 +90,11 @@ function commandIsUndo(body: string): boolean {
 
 // Customer confirming attendance in reply to the 24h reminder ("Reply YES").
 function commandIsConfirm(body: string): boolean {
-  return /\b(yes|yep|yeah|yup|confirm(ed|ing)?)\b/i.test(body) || /^\s*y\s*$/i.test(body);
+  return (
+    /\b(yes|yes+|yep|yeah|yup|ya|yea|confirm(ed|ing)?)\b/i.test(body) ||
+    /^\s*(y|ok|okay|k)(\s|[.!,]|$)/i.test(body) ||
+    /^\s*(👍|✅|👌)/u.test(body)
+  );
 }
 
 function possibleRequestUrls(request: Request): string[] {
