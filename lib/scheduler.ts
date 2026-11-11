@@ -577,8 +577,13 @@ async function scorePreferredSlots(
 ): Promise<CandidateSlot[]> {
   const candidates = generateCandidateSlots(day, durationMins);
   const scored: CandidateSlot[] = [];
+  // Only times inside the requested window that start on :00 or :30 are ever returned (see the filter below).
+  const shown = (time: string) =>
+    preferencePenaltyMins(time, preferredWindow) === 0 && (time.endsWith(":00") || time.endsWith(":30"));
 
   for (const candidate of candidates) {
+    // Speed: skip times the filter below drops anyway, so they cost no drive lookups.
+    if (!shown(candidate.start_time)) continue;
     if (!skipMinLeadTime && isWithinMinLeadTime(candidate.date, candidate.start_time)) continue;
     const result = await validateCandidateSlot(
       {
@@ -609,11 +614,7 @@ async function scorePreferredSlots(
   // Do NOT fall back to out-of-window slots — that produces confusing results
   // (e.g. showing 11:30am when the user asked for 3–6pm).
   // Also restrict to :00 and :30 start times for clean presentation.
-  const inWindow = scored.filter(
-    (s) =>
-      preferencePenaltyMins(s.start_time, preferredWindow) === 0 &&
-      (s.start_time.endsWith(":00") || s.start_time.endsWith(":30")),
-  );
+  const inWindow = scored.filter((s) => shown(s.start_time));
 
   // Return all valid slots in chronological order so the admin can see every option.
   return inWindow.sort((a, b) => a.start_time.localeCompare(b.start_time));
