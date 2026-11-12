@@ -472,19 +472,34 @@ export async function findBestSlots(
   fromDate?: string,
   overrideMaxDrive?: boolean,
 ): Promise<{ featured_slots: CandidateSlot[]; all_slots: Record<string, CandidateSlot[]> }> {
+  const startedAt = Date.now();
   // Fetch up to 30 calendar days so we can find the first 14 days that actually have open slots.
   const days = await fetchWorkingDays(fromDate, 30);
   const allValid: CandidateSlot[] = [];
   let checkedCandidates = 0;
   const MAX_CANDIDATES_TO_CHECK = 120;
+  // Spread: past the 120-check mark, keep looking until valid slots cover this many days (the picks below aim
+  // for 4), so a far address isn't offered just 1-2 days. Hard stops are unchanged: 14 days with slots, or
+  // the end of the 30-day window.
+  const MIN_DAYS_WITH_SLOTS = 4;
+  // Safety net: once past the 120-check mark, stop looking for more days when the request has run this long.
+  const MORE_DAYS_BUDGET_MS = 10_000;
   const datesWithSlots = new Set<string>();
+  const pastOldStop = () => checkedCandidates >= MAX_CANDIDATES_TO_CHECK && allValid.length >= 5;
+
+  // Speed: every date's bookings come from one range read instead of 2 reads per date (as findAvailableDates).
+  const dates = [...new Set(days.map((d) => d.date))].sort((a, b) => a.localeCompare(b));
+  const blocksByDate = dates.length ? await fetchRangeAppointments(dates[0], dates[dates.length - 1]) : null;
 
   for (const day of days) {
     // Stop once we've seen 14 distinct days that yielded at least one valid slot.
     if (datesWithSlots.size >= 14) break;
 
-    const existing = await fetchDayAppointments(day.date);
+    const existing = blocksByDate ? blocksByDate.get(day.date) ?? [] : await fetchDayAppointments(day.date);
     const candidates = generateCandidateSlots(day, durationMins);
+    // Earlier days already cover enough days: keep the old mid-day stop. Otherwise finish this day, so its
+    // best slot can be picked rather than just its first valid one.
+    const enoughDaysAlready = datesWithSlots.size >= MIN_DAYS_WITH_SLOTS;
     let dayHadValidSlot = false;
 
     for (const candidate of candidates) {
@@ -507,11 +522,11 @@ export async function findBestSlots(
         dayHadValidSlot = true;
       }
 
-      if (checkedCandidates >= MAX_CANDIDATES_TO_CHECK && allValid.length >= 5) break;
+      if (enoughDaysAlready && pastOldStop()) break;
     }
 
     if (dayHadValidSlot) datesWithSlots.add(day.date);
-    if (checkedCandidates >= MAX_CANDIDATES_TO_CHECK && allValid.length >= 5) break;
+    if (pastOldStop() && (datesWithSlots.size >= MIN_DAYS_WITH_SLOTS || Date.now() - startedAt >= MORE_DAYS_BUDGET_MS)) break;
   }
 
   const scored = allValid.sort((a, b) => a.score - b.score);
