@@ -258,12 +258,23 @@ function getTimeBand(time: string): TimeBand {
   return "late_day";
 }
 
-function isSpacedFromSelected(slot: CandidateSlot, selected: CandidateSlot[], minGapMins: number): boolean {
+function isSpacedFromSelected(
+  slot: CandidateSlot,
+  selected: Pick<CandidateSlot, "date" | "start_time">[],
+  minGapMins: number,
+): boolean {
   const slotMins = timeToMinutes(slot.start_time);
   return selected.every((s) => {
     if (s.date !== slot.date) return true;
     return Math.abs(slotMins - timeToMinutes(s.start_time)) >= minGapMins;
   });
+}
+
+// A time the lead already has on screen: the "5 more" request sends these back.
+export type ShownSlot = { date: string; start_time: string };
+
+function shownKey(date: string, startTime: string): string {
+  return `${date} ${startTime.slice(0, 5)}`;
 }
 
 function pickDiverseSlots(
@@ -277,6 +288,10 @@ function pickDiverseSlots(
     targetDistinctBands?: number;
     dayWeight?: number;
     bandWeight?: number;
+    // "5 more": times already on screen. They are never picked again, count toward the 2-a-day cap, and no
+    // new pick sits within minGapMins of one on the same day. Their days are not new days. The day and band
+    // targets apply to the new picks only. Without it, picking is exactly as before.
+    shown?: ShownSlot[];
   },
 ): CandidateSlot[] {
   const selected: CandidateSlot[] = [];
@@ -287,10 +302,24 @@ function pickDiverseSlots(
   const dayWeight = options.dayWeight ?? 1;
   const bandWeight = options.bandWeight ?? 1;
 
+  const shownKeys = new Set<string>();
+  const shown: ShownSlot[] = [];
+  for (const s of options.shown ?? []) {
+    const key = shownKey(s.date, s.start_time);
+    if (shownKeys.has(key)) continue;
+    shownKeys.add(key);
+    shown.push(s);
+    perDay.set(s.date, (perDay.get(s.date) || 0) + 1);
+  }
+  const shownDays = new Set(shown.map((s) => s.date));
+  const isShown = (slot: CandidateSlot) => shownKeys.size > 0 && shownKeys.has(shownKey(slot.date, slot.start_time));
+
   function pickBestCandidate(candidates: CandidateSlot[]): CandidateSlot | null {
     if (!candidates.length) return null;
     const seenDays = new Set(selected.map((s) => s.date));
     const seenBands = new Set(selected.map((s) => getTimeBand(s.start_time)));
+    // Days the new picks add beyond the ones already on screen (all picked days when nothing is on screen).
+    const newDaysPicked = shownDays.size ? [...seenDays].filter((d) => !shownDays.has(d)).length : seenDays.size;
 
     let best: CandidateSlot | null = null;
     let bestScore = Number.POSITIVE_INFINITY;
@@ -299,7 +328,7 @@ function pickDiverseSlots(
       const dayCount = perDay.get(slot.date) || 0;
       const band = getTimeBand(slot.start_time);
       const bandCount = perBand.get(band) || 0;
-      const isNewDay = !seenDays.has(slot.date);
+      const isNewDay = !seenDays.has(slot.date) && !shownDays.has(slot.date);
       const isNewBand = !seenBands.has(band);
 
       // Efficiency stays primary (base score), diversity penalties act as soft tie-breakers.
@@ -308,7 +337,7 @@ function pickDiverseSlots(
       adjusted += bandWeight * bandCount;
       if (!isNewDay) adjusted += dayWeight * 0.5;
       if (!isNewBand) adjusted += bandWeight * 0.5;
-      if (seenDays.size < targetDistinctDays && !isNewDay) adjusted += dayWeight * 2;
+      if (newDaysPicked < targetDistinctDays && !isNewDay) adjusted += dayWeight * 2;
       if (seenBands.size < targetDistinctBands && !isNewBand) adjusted += bandWeight * 4;
 
       if (adjusted < bestScore) {
@@ -325,6 +354,7 @@ function pickDiverseSlots(
     for (const slot of scored) {
       if (selected.length >= count) break;
       if ((perDay.get(slot.date) || 0) > 0) continue;
+      if (isShown(slot)) continue;
       if (!isSpacedFromSelected(slot, selected, options.minGapMins)) continue;
       selected.push(slot);
       seenDays.add(slot.date);
@@ -338,8 +368,10 @@ function pickDiverseSlots(
   while (selected.length < count) {
     const candidates = scored.filter((slot) => {
       if (selected.some((s) => s.date === slot.date && s.start_time === slot.start_time)) return false;
+      if (isShown(slot)) return false;
       if ((perDay.get(slot.date) || 0) >= options.maxPerDay) return false;
       if (!isSpacedFromSelected(slot, selected, options.minGapMins)) return false;
+      if (!isSpacedFromSelected(slot, shown, options.minGapMins)) return false;
       return true;
     });
     const best = pickBestCandidate(candidates);
@@ -350,12 +382,15 @@ function pickDiverseSlots(
     perBand.set(band, (perBand.get(band) || 0) + 1);
   }
 
-  // Final fill pass with relaxed spacing if needed, while preserving per-day cap.
+  // Final fill pass with relaxed spacing if needed, while preserving per-day cap. Times on screen keep their
+  // spacing, so "5 more" never offers a near copy of one the lead already passed over.
   if (selected.length < count) {
     while (selected.length < count) {
       const candidates = scored.filter((slot) => {
         if (selected.some((s) => s.date === slot.date && s.start_time === slot.start_time)) return false;
+        if (isShown(slot)) return false;
         if ((perDay.get(slot.date) || 0) >= options.maxPerDay) return false;
+        if (!isSpacedFromSelected(slot, shown, options.minGapMins)) return false;
         return true;
       });
       const best = pickBestCandidate(candidates);
@@ -471,6 +506,9 @@ export async function findBestSlots(
   durationMins: number,
   fromDate?: string,
   overrideMaxDrive?: boolean,
+  // "5 more": the times already on screen. The search then needs 4 days with slots beyond their days, and the
+  // picks never repeat or crowd them. Empty or missing: the normal first 5.
+  shown?: ShownSlot[],
 ): Promise<{ featured_slots: CandidateSlot[]; all_slots: Record<string, CandidateSlot[]> }> {
   const startedAt = Date.now();
   const sharedReady = primeSharedDriveTimes(location);
@@ -487,6 +525,10 @@ export async function findBestSlots(
   const MORE_DAYS_BUDGET_MS = 10_000;
   const datesWithSlots = new Set<string>();
   const pastOldStop = () => checkedCandidates >= MAX_CANDIDATES_TO_CHECK && allValid.length >= 5;
+  // Days that count toward the 4: with times on screen, only days other than theirs.
+  const shownDays = new Set((shown ?? []).map((s) => s.date));
+  const daysThatCount = () =>
+    shownDays.size ? [...datesWithSlots].filter((date) => !shownDays.has(date)).length : datesWithSlots.size;
 
   // Speed: every date's bookings come from one range read instead of 2 reads per date (as findAvailableDates).
   const dates = [...new Set(days.map((d) => d.date))].sort((a, b) => a.localeCompare(b));
@@ -501,7 +543,7 @@ export async function findBestSlots(
     const candidates = generateCandidateSlots(day, durationMins);
     // Earlier days already cover enough days: keep the old mid-day stop. Otherwise finish this day, so its
     // best slot can be picked rather than just its first valid one.
-    const enoughDaysAlready = datesWithSlots.size >= MIN_DAYS_WITH_SLOTS;
+    const enoughDaysAlready = daysThatCount() >= MIN_DAYS_WITH_SLOTS;
     let dayHadValidSlot = false;
 
     for (const candidate of candidates) {
@@ -530,7 +572,7 @@ export async function findBestSlots(
     }
 
     if (dayHadValidSlot) datesWithSlots.add(day.date);
-    if (pastOldStop() && (datesWithSlots.size >= MIN_DAYS_WITH_SLOTS || Date.now() - startedAt >= MORE_DAYS_BUDGET_MS)) break;
+    if (pastOldStop() && (daysThatCount() >= MIN_DAYS_WITH_SLOTS || Date.now() - startedAt >= MORE_DAYS_BUDGET_MS)) break;
   }
 
   saveSharedDriveTimesInBackground(location);
@@ -543,7 +585,17 @@ export async function findBestSlots(
     targetDistinctBands: 3,
     dayWeight: 1.2,
     bandWeight: 1.0,
+    shown,
   });
+  if (shownDays.size) {
+    console.info("[slots] 5 more", {
+      shown: shown?.length ?? 0,
+      picked: featuredSlots.length,
+      newDays: new Set(featuredSlots.map((s) => s.date).filter((date) => !shownDays.has(date))).size,
+      checked: checkedCandidates,
+      ms: Date.now() - startedAt,
+    });
+  }
 
   return {
     featured_slots: featuredSlots,

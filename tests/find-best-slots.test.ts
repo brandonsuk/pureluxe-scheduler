@@ -274,3 +274,92 @@ describe("findBestSlots bookings read", () => {
     expect(db.state.queries.some((q) => q.table === "appointments" && q.filters.includes("eq:date"))).toBe(true);
   });
 });
+
+describe("findBestSlots 5 more", () => {
+  const keyOf = (slot: { date: string; start_time: string }) => `${slot.date} ${slot.start_time.slice(0, 5)}`;
+  const minsOf = (time: string) => Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+  const onScreen = (slots: { date: string; start_time: string }[]) =>
+    slots.map(({ date, start_time }) => ({ date, start_time }));
+
+  it("never repeats a time on screen, keeps 2 a day and an hour apart across all 10", async () => {
+    const dates = isoDates(20);
+    openWindows(dates);
+    addBookings(dates);
+    const first = await findBestSlots(location, 60, FIRST);
+
+    const more = await findBestSlots(location, 60, FIRST, undefined, onScreen(first.featured_slots));
+
+    expect(first.featured_slots).toHaveLength(5);
+    expect(more.featured_slots).toHaveLength(5);
+    const shownKeys = new Set(first.featured_slots.map(keyOf));
+    expect(more.featured_slots.some((slot) => shownKeys.has(keyOf(slot)))).toBe(false);
+    const all = [...first.featured_slots, ...more.featured_slots];
+    const perDay = new Map<string, string[]>();
+    for (const slot of all) perDay.set(slot.date, [...(perDay.get(slot.date) ?? []), slot.start_time]);
+    for (const times of perDay.values()) {
+      expect(times.length).toBeLessThanOrEqual(2);
+      if (times.length === 2) expect(Math.abs(minsOf(times[0]) - minsOf(times[1]))).toBeGreaterThanOrEqual(60);
+    }
+  });
+
+  it("looks past the days on screen until 4 new days have slots, and picks those days", async () => {
+    const dates = isoDates(20);
+    openWindows(dates);
+    const first = await findBestSlots(location, 60, FIRST);
+    expect(new Set(first.featured_slots.map((slot) => slot.date))).toEqual(new Set(dates.slice(0, 4)));
+
+    mocked.mockClear();
+    const more = await findBestSlots(location, 60, FIRST, undefined, onScreen(first.featured_slots));
+
+    // The first 5 stopped after day 4 (index 3). The next 5 need days 5-8 too.
+    expect(lastDayLookedUp(dates)).toBe(7);
+    const newDays = new Set(more.featured_slots.map((slot) => slot.date).filter((date) => !dates.slice(0, 4).includes(date)));
+    expect(newDays).toEqual(new Set(dates.slice(4, 8)));
+    expect(more.featured_slots.filter((slot) => newDays.has(slot.date)).length).toBeGreaterThanOrEqual(4);
+  });
+
+  it("keeps an hour away from a time on screen on the same day, even when short of slots", async () => {
+    const dates = isoDates(1);
+    openWindows(dates, "11:00", "13:30"); // 60-min visits can start 11:00 to 12:30
+
+    const more = await findBestSlots(location, 60, FIRST, undefined, [{ date: dates[0], start_time: "12:00" }]);
+
+    // 12:00 is on screen, so 11:15 to 12:30 are too close; 2 a day means only one more.
+    expect(onScreen(more.featured_slots)).toEqual([{ date: dates[0], start_time: "11:00" }]);
+  });
+
+  it("returns nothing when the days on screen are full and no other day has room", async () => {
+    const dates = isoDates(2);
+    openWindows(dates);
+    const first = await findBestSlots(location, 60, FIRST);
+    expect(first.featured_slots).toHaveLength(4);
+
+    const more = await findBestSlots(location, 60, FIRST, undefined, onScreen(first.featured_slots));
+
+    expect(more.featured_slots).toEqual([]);
+  });
+
+  it("gives exactly the normal picks when nothing is on screen", async () => {
+    const dates = isoDates(20);
+    openWindows(dates);
+    addBookings(dates);
+    const normal = await findBestSlots(location, 60, FIRST);
+
+    expect((await findBestSlots(location, 60, FIRST, undefined, [])).featured_slots).toEqual(normal.featured_slots);
+    expect((await findBestSlots(location, 60, FIRST, undefined, undefined)).featured_slots).toEqual(normal.featured_slots);
+  });
+
+  it("accepts on-screen times with or without seconds", async () => {
+    const dates = isoDates(20);
+    openWindows(dates);
+    const first = await findBestSlots(location, 60, FIRST);
+    const withSeconds = first.featured_slots.map(({ date, start_time }) => ({ date, start_time: `${start_time.slice(0, 5)}:00` }));
+
+    const a = await findBestSlots(location, 60, FIRST, undefined, onScreen(first.featured_slots));
+    const b = await findBestSlots(location, 60, FIRST, undefined, withSeconds);
+
+    expect(b.featured_slots).toEqual(a.featured_slots);
+    const shownKeys = new Set(first.featured_slots.map(keyOf));
+    expect(b.featured_slots.some((slot) => shownKeys.has(keyOf(slot)))).toBe(false);
+  });
+});

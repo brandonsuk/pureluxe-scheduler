@@ -10,6 +10,16 @@ export const availableSlotsSchema = z.object({
   duration_mins: z.coerce.number().int().min(30).max(180),
   from_date: z.string().optional(),
   override_max_drive: z.boolean().optional(),
+  // "5 more": the times already on screen (date + start time as each slot came back). Extra fields are ignored.
+  shown_slots: z
+    .array(
+      z.object({
+        date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+        start_time: z.string().regex(/^\d{2}:\d{2}(:\d{2})?$/),
+      }),
+    )
+    .max(10)
+    .optional(),
 });
 
 const readinessSchema = z.preprocess((value) => {

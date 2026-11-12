@@ -16,6 +16,7 @@ export async function POST(request: Request) {
       parsed.data.duration_mins,
       parsed.data.from_date,
       parsed.data.override_max_drive,
+      parsed.data.shown_slots,
     );
 
     return jsonOk(slotResults, request);
