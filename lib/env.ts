@@ -44,6 +44,8 @@ export const env = {
   homeBaseLat: Number(process.env.HOME_BASE_LAT || 55.7956),
   homeBaseLng: Number(process.env.HOME_BASE_LNG || -3.7939),
   maxDriveMins: Number(process.env.MAX_DRIVE_MINS || 40),
+  // Cap for the first leg (from home base) and last leg (back home). Job-to-job legs use maxDriveMins.
+  maxEdgeDriveMins: Number(process.env.MAX_EDGE_DRIVE_MINS || 50),
   bufferMins: Number(process.env.BUFFER_MINS || 0),
   appUrl: process.env.NEXT_PUBLIC_API_URL || "",
   airtableApiKey: process.env.AIRTABLE_API_KEY || "",

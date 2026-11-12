@@ -116,6 +116,56 @@ export async function fetchDayAppointments(date: string): Promise<TimedBlockWith
   return merged.sort((a, b) => a.start_time.localeCompare(b.start_time));
 }
 
+type BlockRow = Pick<Appointment, "id" | "date" | "start_time" | "end_time" | "lat" | "lng">;
+
+// Speed: confirmed appointments + calendar blockers for a whole date range in 2 parallel reads, grouped per
+// date in the same order fetchDayAppointments returns them. Returns null if a read failed or the API capped
+// the rows (or gave no count), so the caller falls back to the per-day reads.
+async function fetchRangeAppointments(startDate: string, endDate: string): Promise<Map<string, TimedBlockWithLoc[]> | null> {
+  const [appointmentsResult, blockersResult] = await Promise.all([
+    supabaseAdmin
+      .from("appointments")
+      .select("id,date,start_time,end_time,lat,lng", { count: "exact" })
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .eq("status", "confirmed")
+      .order("date", { ascending: true })
+      .order("start_time", { ascending: true }),
+    supabaseAdmin
+      .from("calendar_blockers")
+      .select("id,date,start_time,end_time,lat,lng", { count: "exact" })
+      .gte("date", startDate)
+      .lte("date", endDate)
+      .order("date", { ascending: true })
+      .order("start_time", { ascending: true }),
+  ]);
+
+  const appointments = (appointmentsResult.data || []) as BlockRow[];
+  const blockers = (blockersResult.data || []) as BlockRow[];
+  const complete = (count: number | null, rows: number) => count !== null && count <= rows;
+  if (
+    appointmentsResult.error
+    || blockersResult.error
+    || !complete(appointmentsResult.count, appointments.length)
+    || !complete(blockersResult.count, blockers.length)
+  ) {
+    // eslint-disable-next-line no-console
+    console.warn("[scheduler] range read incomplete, using per-day reads", appointmentsResult.error?.message || blockersResult.error?.message || "row cap");
+    return null;
+  }
+
+  // Appointments first, then blockers, then a stable sort by start time: the same order as fetchDayAppointments.
+  const byDate = new Map<string, TimedBlockWithLoc[]>();
+  for (const row of [...appointments, ...blockers]) {
+    const block = { id: row.id, date: row.date, start_time: row.start_time, end_time: row.end_time, lat: row.lat, lng: row.lng };
+    const list = byDate.get(row.date);
+    if (list) list.push(block);
+    else byDate.set(row.date, [block]);
+  }
+  for (const list of byDate.values()) list.sort((a, b) => a.start_time.localeCompare(b.start_time));
+  return byDate;
+}
+
 function overlaps(aStart: Date, aEnd: Date, bStart: Date, bEnd: Date): boolean {
   return aStart < bEnd && aEnd > bStart;
 }
@@ -320,6 +370,11 @@ function pickDiverseSlots(
   return selected;
 }
 
+function addMinutesToTime(time: string, mins: number): string {
+  const total = Math.min(Math.max(timeToMinutes(time) + mins, 0), 23 * 60 + 59);
+  return `${String(Math.floor(total / 60)).padStart(2, "0")}:${String(total % 60).padStart(2, "0")}`;
+}
+
 export async function validateCandidateSlot(input: SlotInput, existing: TimedBlockWithLoc[]): Promise<ValidationResult> {
   const start = combineDateTime(input.date, input.start_time);
   const end = new Date(start.getTime() + input.duration_mins * 60 * 1000);
@@ -358,12 +413,18 @@ export async function validateCandidateSlot(input: SlotInput, existing: TimedBlo
   let nextDrive: number;
   let directPrevToNext: number;
   try {
+    // Visit-time routing: each leg uses typical traffic for when it is actually driven.
+    // From home, assume leaving ~30 min before the visit; otherwise leave when the previous visit ends.
+    const prevDepart = prev ? prev.end_time.slice(0, 5) : addMinutesToTime(input.start_time, -30);
+    const endTime = addMinutesToTime(input.start_time, input.duration_mins);
     [prevDrive, nextDrive] = await Promise.all([
-      getDriveMinutes(prevLoc, input.location),
-      getDriveMinutes(input.location, nextLoc),
+      getDriveMinutes(prevLoc, input.location, { date: input.date, time: prevDepart }),
+      getDriveMinutes(input.location, nextLoc, { date: input.date, time: endTime }),
     ]);
     const samePrevNext = prevLoc.lat === nextLoc.lat && prevLoc.lng === nextLoc.lng;
-    directPrevToNext = samePrevNext ? 0 : await getDriveMinutes(prevLoc, nextLoc);
+    directPrevToNext = samePrevNext
+      ? 0
+      : await getDriveMinutes(prevLoc, nextLoc, { date: input.date, time: prev ? prevDepart : endTime });
   } catch {
     return { valid: false, reason: "route_unavailable" };
   }
@@ -373,7 +434,11 @@ export async function validateCandidateSlot(input: SlotInput, existing: TimedBlo
   const prevLegFits = prev ? prevDrive <= availableFromPrev : true;
   const nextLegFits = nextDrive <= availableToNext;
 
-  if (!input.overrideMaxDrive && (prevDrive > env.maxDriveMins || nextDrive > env.maxDriveMins)) {
+  // First visit of the day (from home) and last visit (back home) may use the longer edge cap,
+  // so far towns get first/last slots only. Job-to-job legs keep the normal cap.
+  const prevCap = prev ? env.maxDriveMins : env.maxEdgeDriveMins;
+  const nextCap = next ? env.maxDriveMins : env.maxEdgeDriveMins;
+  if (!input.overrideMaxDrive && (prevDrive > prevCap || nextDrive > nextCap)) {
     return { valid: false, reason: "max_drive" };
   }
 
@@ -490,14 +555,35 @@ export async function findPreferredSlots(
   overrideMaxDrive?: boolean,
   skipMinLeadTime?: boolean,
 ): Promise<CandidateSlot[]> {
-  const existing = await fetchDayAppointments(preferredDate);
-  const day = (await fetchWorkingDays(preferredDate, 1)).find((d) => d.date === preferredDate);
+  // Speed: the bookings read and the working-hours read run in parallel.
+  const [existing, days] = await Promise.all([fetchDayAppointments(preferredDate), fetchWorkingDays(preferredDate, 1)]);
+  const day = days.find((d) => d.date === preferredDate);
   if (!day) return [];
 
+  return scorePreferredSlots(location, durationMins, day, existing, preferredWindow, preferredTime, overrideMaxDrive, skipMinLeadTime);
+}
+
+// Valid slots for one working day, scored for the lead's preferred window. Used by findPreferredSlots
+// and findAvailableDates.
+async function scorePreferredSlots(
+  location: Location,
+  durationMins: number,
+  day: WorkingHours,
+  existing: TimedBlockWithLoc[],
+  preferredWindow: PreferredWindow,
+  preferredTime?: string,
+  overrideMaxDrive?: boolean,
+  skipMinLeadTime?: boolean,
+): Promise<CandidateSlot[]> {
   const candidates = generateCandidateSlots(day, durationMins);
   const scored: CandidateSlot[] = [];
+  // Only times inside the requested window that start on :00 or :30 are ever returned (see the filter below).
+  const shown = (time: string) =>
+    preferencePenaltyMins(time, preferredWindow) === 0 && (time.endsWith(":00") || time.endsWith(":30"));
 
   for (const candidate of candidates) {
+    // Speed: skip times the filter below drops anyway, so they cost no drive lookups.
+    if (!shown(candidate.start_time)) continue;
     if (!skipMinLeadTime && isWithinMinLeadTime(candidate.date, candidate.start_time)) continue;
     const result = await validateCandidateSlot(
       {
@@ -528,11 +614,7 @@ export async function findPreferredSlots(
   // Do NOT fall back to out-of-window slots — that produces confusing results
   // (e.g. showing 11:30am when the user asked for 3–6pm).
   // Also restrict to :00 and :30 start times for clean presentation.
-  const inWindow = scored.filter(
-    (s) =>
-      preferencePenaltyMins(s.start_time, preferredWindow) === 0 &&
-      (s.start_time.endsWith(":00") || s.start_time.endsWith(":30")),
-  );
+  const inWindow = scored.filter((s) => shown(s.start_time));
 
   // Return all valid slots in chronological order so the admin can see every option.
   return inWindow.sort((a, b) => a.start_time.localeCompare(b.start_time));
@@ -552,10 +634,20 @@ export async function findAvailableDates(
   const days = await fetchWorkingDays(fromDate, calendarWindow);
   const uniqueDates = [...new Set(days.map((d) => d.date))].sort((a, b) => a.localeCompare(b));
   const availableDates: string[] = [];
+  if (!uniqueDates.length) return availableDates;
+
+  // Speed: each date uses its first working-hours window from the read above (the same row a per-day read
+  // returns), and every date's bookings come from one range read instead of 3 reads per date.
+  const firstWindowByDate = new Map<string, WorkingHours>();
+  for (const day of days) if (!firstWindowByDate.has(day.date)) firstWindowByDate.set(day.date, day);
+  const blocksByDate = await fetchRangeAppointments(uniqueDates[0], uniqueDates[uniqueDates.length - 1]);
 
   for (const date of uniqueDates) {
     if (availableDates.length >= targetDaysWithSlots) break;
-    const slots = await findPreferredSlots(location, durationMins, date, preferredWindow, undefined, overrideMaxDrive);
+    const day = firstWindowByDate.get(date);
+    if (!day) continue;
+    const existing = blocksByDate ? blocksByDate.get(date) ?? [] : await fetchDayAppointments(date);
+    const slots = await scorePreferredSlots(location, durationMins, day, existing, preferredWindow, undefined, overrideMaxDrive);
     if (slots.length > 0) availableDates.push(date);
   }
 
