@@ -31,6 +31,16 @@ const CACHE_TTL_MS = 10 * 60 * 1000;
 const BANDED_CACHE_TTL_MS = 6 * 60 * 60 * 1000;
 const TOMTOM_MIN_INTERVAL_MS = 275;
 
+// Routes and addresses TomTom could not place on a road, even after nudging. Map matching does not
+// depend on departure time, so one failure covers every time band. Kept briefly so a bad address
+// fails fast instead of repeating the nudge search for every slot.
+const unroutableUntil = new Map<string, number>();
+const UNROUTABLE_TTL_MS = 10 * 60 * 1000;
+// Nearest-first nudges tried after a MAP_MATCHING_FAILURE (was a 49 x 49 grid: up to 2,401 calls).
+const MAX_NUDGE_TRIES = 12;
+// Nudge distances in degrees, four compass directions each: about 50 m to 560 m at our latitude.
+const NUDGE_STEPS_DEG = [0.0008, 0.002, 0.005];
+
 let lastTomTomRequestAt = 0;
 let tomTomQueue: Promise<void> = Promise.resolve();
 
@@ -40,11 +50,12 @@ export type Departure = { date: string; time: string };
 type TimeBand = { id: string; startMins: number; repTime: string };
 
 // Representative departure per band, so every lookup in a band gets the same answer.
+// pm-peak starts at 15:00 so school-run departures (15:00-15:29) are not priced at midday traffic.
 const TIME_BANDS: TimeBand[] = [
   { id: "early", startMins: 0, repTime: "06:30" },
   { id: "am-peak", startMins: 7 * 60, repTime: "08:15" },
   { id: "midday", startMins: 9 * 60 + 30, repTime: "12:00" },
-  { id: "pm-peak", startMins: 15 * 60 + 30, repTime: "17:00" },
+  { id: "pm-peak", startMins: 15 * 60, repTime: "17:00" },
   { id: "evening", startMins: 18 * 60 + 30, repTime: "19:00" },
 ];
 
@@ -95,15 +106,39 @@ export function resolveDeparture(departure: Departure, nowMs = Date.now()): { ba
   return { bandKey, departAt: `${date}T${band.repTime}:00` };
 }
 
-function cacheKey(origin: Location, destination: Location, bandKey?: string): string {
+function pairKey(origin: Location, destination: Location): string {
   return [
     origin.lat.toFixed(5),
     origin.lng.toFixed(5),
     destination.lat.toFixed(5),
     destination.lng.toFixed(5),
     env.distanceProvider,
-    bandKey || "live",
   ].join("|");
+}
+
+function pointKey(point: Location): string {
+  return ["pt", point.lat.toFixed(5), point.lng.toFixed(5), env.distanceProvider].join("|");
+}
+
+function cacheKey(origin: Location, destination: Location, bandKey?: string): string {
+  return `${pairKey(origin, destination)}|${bandKey || "live"}`;
+}
+
+function markedUnroutable(key: string, now: number): boolean {
+  const until = unroutableUntil.get(key);
+  if (until === undefined) return false;
+  if (until > now) return true;
+  unroutableUntil.delete(key);
+  return false;
+}
+
+function knownUnroutable(origin: Location, destination: Location): boolean {
+  const now = Date.now();
+  return (
+    markedUnroutable(pairKey(origin, destination), now)
+    || markedUnroutable(pointKey(origin), now)
+    || markedUnroutable(pointKey(destination), now)
+  );
 }
 
 /**
@@ -115,6 +150,11 @@ export async function getDriveMinutes(origin: Location, destination: Location, d
   const key = cacheKey(origin, destination, resolved?.bandKey);
   const hit = driveCache.get(key);
   if (hit && hit.expiresAt > Date.now()) return hit.minutes;
+
+  // Same error family as a fresh failure, so callers treat it the same way (the slot is just not offered).
+  if (knownUnroutable(origin, destination)) {
+    throw new Error("MAP_MATCHING_FAILURE (TomTom): unroutable within the last 10 min, skipped");
+  }
 
   const inflight = inflightDriveRequests.get(key);
   if (inflight) return inflight;
@@ -137,25 +177,78 @@ export async function getDriveMinutes(origin: Location, destination: Location, d
   }
 }
 
+type RouteEnd = "origin" | "destination";
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** The end TomTom could not place on a road, when its error names it ("MAP_MATCHING_FAILURE: Destination (...)"). */
+function failingEnd(message: string): RouteEnd | null {
+  const match = /MAP_MATCHING_FAILURE\W*(origin|destination)/i.exec(message);
+  return match ? (match[1].toLowerCase() as RouteEnd) : null;
+}
+
+/** Errors that say the route itself is impossible, as opposed to rate limits, outages or network trouble. */
+function isUnroutableError(message: string): boolean {
+  return message.includes("MAP_MATCHING_FAILURE") || message.includes("NO_ROUTE_FOUND");
+}
+
+/** Short, coordinate-free snippet of TomTom's wording after the error code, so its format shows in logs. */
+function errorHint(message: string): string {
+  const at = message.lastIndexOf("MAP_MATCHING_FAILURE");
+  return message.slice(at, at + 60).replace(/\d/g, "#");
+}
+
 async function getTomTomDriveMinutes(origin: Location, destination: Location, departAt?: string): Promise<number> {
   try {
     return await fetchTomTomRouteMinutes(origin, destination, departAt);
   } catch (error) {
-    const message = error instanceof Error ? error.message : String(error);
+    const message = errorMessage(error);
     if (!message.includes("MAP_MATCHING_FAILURE")) throw error;
 
-    // Retry with small nearby offsets because geocoded points can be off-road.
-    const originCandidates = nudgeCandidates(origin);
-    const destinationCandidates = nudgeCandidates(destination);
-
-    for (const o of originCandidates) {
-      for (const d of destinationCandidates) {
-        try {
-          return await fetchTomTomRouteMinutes(o, d, departAt);
-        } catch {
-          // keep trying
+    // Geocoded points can sit just off a mapped road: retry with a few nearest-first offsets, moving only
+    // the end TomTom named (both ends in turn when it names neither), then give up.
+    const end = failingEnd(message);
+    let tries = 0;
+    let transient = false;
+    let sameEnd = end !== null;
+    for (const attempt of nudgeAttempts(origin, destination, end)) {
+      tries += 1;
+      try {
+        const minutes = await fetchTomTomRouteMinutes(attempt.origin, attempt.destination, departAt);
+        // eslint-disable-next-line no-console
+        console.info("[distance] route matched after nudging", { end: end ?? "unknown", tries });
+        return minutes;
+      } catch (nudgeError) {
+        const nudgeMessage = errorMessage(nudgeError);
+        if (!isUnroutableError(nudgeMessage)) {
+          // Rate limit, outage or network: stop here and do not remember the route as unroutable.
+          transient = true;
+          // eslint-disable-next-line no-console
+          console.warn("[distance] nudge search stopped by a TomTom error", {
+            status: /\(TomTom\): (\d{3})/.exec(nudgeMessage)?.[1] ?? "no status",
+            tries,
+          });
+          break;
         }
+        if (failingEnd(nudgeMessage) !== end) sameEnd = false;
       }
+    }
+
+    if (!transient) {
+      const until = Date.now() + UNROUTABLE_TTL_MS;
+      unroutableUntil.set(pairKey(origin, destination), until);
+      // Every nudge of the named end failed to match it: that address is off the map, so skip it in any route.
+      const addressLevel = sameEnd && end !== null;
+      if (addressLevel) unroutableUntil.set(pointKey(end === "origin" ? origin : destination), until);
+      // eslint-disable-next-line no-console
+      console.warn("[distance] route unroutable after nudging, skipping it for 10 min", {
+        end: end ?? "unknown",
+        tries,
+        scope: addressLevel ? "address" : "route",
+        ...(end ? {} : { hint: errorHint(message) }),
+      });
     }
 
     throw error;
@@ -210,19 +303,38 @@ async function waitForTomTomSlot(): Promise<void> {
   release();
 }
 
+/** Nearby points to try, nearest first. The widest step still reaches rural points set back from the road. */
 function nudgeCandidates(point: Location): Location[] {
-  // Wider radius for rural/off-road points (e.g., home base not directly on mapped road).
-  const offsets = [0, 0.0008, -0.0008, 0.002, -0.002, 0.005, -0.005];
-  const out: Location[] = [];
-  for (const dLat of offsets) {
-    for (const dLng of offsets) {
-      out.push({
-        lat: Number((point.lat + dLat).toFixed(6)),
-        lng: Number((point.lng + dLng).toFixed(6)),
-      });
+  // A degree of longitude is shorter than a degree of latitude this far north, so sort by metres.
+  const lngScale = Math.cos((point.lat * Math.PI) / 180);
+  const offsets: Array<{ dLat: number; dLng: number; metres: number }> = [];
+  for (const step of NUDGE_STEPS_DEG) {
+    for (const sign of [1, -1]) {
+      offsets.push({ dLat: sign * step, dLng: 0, metres: step * 111_320 });
+      offsets.push({ dLat: 0, dLng: sign * step, metres: step * 111_320 * lngScale });
     }
   }
-  return out;
+  offsets.sort((a, b) => a.metres - b.metres);
+  return offsets.map(({ dLat, dLng }) => ({
+    lat: Number((point.lat + dLat).toFixed(6)),
+    lng: Number((point.lng + dLng).toFixed(6)),
+  }));
+}
+
+/** The nudged routes to try, capped at MAX_NUDGE_TRIES. Only the failing end moves when TomTom names it. */
+function nudgeAttempts(
+  origin: Location,
+  destination: Location,
+  end: RouteEnd | null,
+): Array<{ origin: Location; destination: Location }> {
+  const attempts: Array<{ origin: Location; destination: Location }> = [];
+  const originNudges = end === "destination" ? [] : nudgeCandidates(origin);
+  const destinationNudges = end === "origin" ? [] : nudgeCandidates(destination);
+  for (let i = 0; i < Math.max(originNudges.length, destinationNudges.length); i += 1) {
+    if (destinationNudges[i]) attempts.push({ origin, destination: destinationNudges[i] });
+    if (originNudges[i]) attempts.push({ origin: originNudges[i], destination });
+  }
+  return attempts.slice(0, MAX_NUDGE_TRIES);
 }
 
 async function getGoogleDriveMinutes(origin: Location, destination: Location): Promise<number> {
