@@ -4,6 +4,9 @@ import { validateCandidateSlot } from "@/lib/scheduler";
 
 vi.mock("@/lib/distance", () => ({
   getDriveMinutes: vi.fn(async () => 10),
+  primeSharedDriveTimes: vi.fn(async () => {}),
+  saveSharedDriveTimesInBackground: vi.fn(),
+  trackDriveKeys: vi.fn((_location: unknown, fn: () => Promise<unknown>) => fn()),
 }));
 
 const far = { lat: 55.94, lng: -4.32 }; // Milngavie-ish

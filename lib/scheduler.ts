@@ -1,6 +1,6 @@
 import { addDays, format } from "date-fns";
 import { env } from "@/lib/env";
-import { getDriveMinutes } from "@/lib/distance";
+import { getDriveMinutes, primeSharedDriveTimes, saveSharedDriveTimesInBackground, trackDriveKeys } from "@/lib/distance";
 import { supabaseAdmin } from "@/lib/supabase";
 import { combineDateTime, minutesBetween, todayIsoDate } from "@/lib/time";
 import type { Appointment, CalendarBlocker, CandidateSlot, Location, WorkingHourWindow, WorkingHours } from "@/lib/types";
@@ -473,6 +473,7 @@ export async function findBestSlots(
   overrideMaxDrive?: boolean,
 ): Promise<{ featured_slots: CandidateSlot[]; all_slots: Record<string, CandidateSlot[]> }> {
   const startedAt = Date.now();
+  const sharedReady = primeSharedDriveTimes(location);
   // Fetch up to 30 calendar days so we can find the first 14 days that actually have open slots.
   const days = await fetchWorkingDays(fromDate, 30);
   const allValid: CandidateSlot[] = [];
@@ -491,6 +492,7 @@ export async function findBestSlots(
   const dates = [...new Set(days.map((d) => d.date))].sort((a, b) => a.localeCompare(b));
   const blocksByDate = dates.length ? await fetchRangeAppointments(dates[0], dates[dates.length - 1]) : null;
 
+  await sharedReady;
   for (const day of days) {
     // Stop once we've seen 14 distinct days that yielded at least one valid slot.
     if (datesWithSlots.size >= 14) break;
@@ -505,16 +507,18 @@ export async function findBestSlots(
     for (const candidate of candidates) {
       if (isWithinMinLeadTime(candidate.date, candidate.start_time)) continue;
       checkedCandidates += 1;
-      const result = await validateCandidateSlot(
-        {
-          date: candidate.date,
-          start_time: candidate.start_time,
-          duration_mins: candidate.duration_mins,
-          location,
-          overrideMaxDrive,
-          dayEndTime: day.end_time,
-        },
-        existing,
+      const result = await trackDriveKeys(location, () =>
+        validateCandidateSlot(
+          {
+            date: candidate.date,
+            start_time: candidate.start_time,
+            duration_mins: candidate.duration_mins,
+            location,
+            overrideMaxDrive,
+            dayEndTime: day.end_time,
+          },
+          existing,
+        ),
       );
 
       if (result.valid && typeof result.score === "number") {
@@ -529,6 +533,7 @@ export async function findBestSlots(
     if (pastOldStop() && (datesWithSlots.size >= MIN_DAYS_WITH_SLOTS || Date.now() - startedAt >= MORE_DAYS_BUDGET_MS)) break;
   }
 
+  saveSharedDriveTimesInBackground(location);
   const scored = allValid.sort((a, b) => a.score - b.score);
   const featuredSlots = pickDiverseSlots(scored, 5, {
     minGapMins: 60,
@@ -571,11 +576,17 @@ export async function findPreferredSlots(
   skipMinLeadTime?: boolean,
 ): Promise<CandidateSlot[]> {
   // Speed: the bookings read and the working-hours read run in parallel.
-  const [existing, days] = await Promise.all([fetchDayAppointments(preferredDate), fetchWorkingDays(preferredDate, 1)]);
+  const [existing, days] = await Promise.all([
+    fetchDayAppointments(preferredDate),
+    fetchWorkingDays(preferredDate, 1),
+    primeSharedDriveTimes(location),
+  ]);
   const day = days.find((d) => d.date === preferredDate);
   if (!day) return [];
 
-  return scorePreferredSlots(location, durationMins, day, existing, preferredWindow, preferredTime, overrideMaxDrive, skipMinLeadTime);
+  const scoredSlots = await scorePreferredSlots(location, durationMins, day, existing, preferredWindow, preferredTime, overrideMaxDrive, skipMinLeadTime);
+  saveSharedDriveTimesInBackground(location);
+  return scoredSlots;
 }
 
 // Valid slots for one working day, scored for the lead's preferred window. Used by findPreferredSlots
@@ -600,16 +611,18 @@ async function scorePreferredSlots(
     // Speed: skip times the filter below drops anyway, so they cost no drive lookups.
     if (!shown(candidate.start_time)) continue;
     if (!skipMinLeadTime && isWithinMinLeadTime(candidate.date, candidate.start_time)) continue;
-    const result = await validateCandidateSlot(
-      {
-        date: candidate.date,
-        start_time: candidate.start_time,
-        duration_mins: candidate.duration_mins,
-        location,
-        overrideMaxDrive,
-        dayEndTime: day.end_time,
-      },
-      existing,
+    const result = await trackDriveKeys(location, () =>
+      validateCandidateSlot(
+        {
+          date: candidate.date,
+          start_time: candidate.start_time,
+          duration_mins: candidate.duration_mins,
+          location,
+          overrideMaxDrive,
+          dayEndTime: day.end_time,
+        },
+        existing,
+      ),
     );
     if (!result.valid || typeof result.score !== "number") continue;
 
@@ -646,6 +659,7 @@ export async function findAvailableDates(
   // Fetch up to 30 calendar days so we can return the first targetDaysWithSlots days
   // that actually have open slots, rather than just the first N calendar days.
   const calendarWindow = Math.min(30, Math.max(targetDaysWithSlots * 3, 30));
+  const sharedReady = primeSharedDriveTimes(location);
   const days = await fetchWorkingDays(fromDate, calendarWindow);
   const uniqueDates = [...new Set(days.map((d) => d.date))].sort((a, b) => a.localeCompare(b));
   const availableDates: string[] = [];
@@ -656,6 +670,7 @@ export async function findAvailableDates(
   const firstWindowByDate = new Map<string, WorkingHours>();
   for (const day of days) if (!firstWindowByDate.has(day.date)) firstWindowByDate.set(day.date, day);
   const blocksByDate = await fetchRangeAppointments(uniqueDates[0], uniqueDates[uniqueDates.length - 1]);
+  await sharedReady;
 
   for (const date of uniqueDates) {
     if (availableDates.length >= targetDaysWithSlots) break;
@@ -666,5 +681,6 @@ export async function findAvailableDates(
     if (slots.length > 0) availableDates.push(date);
   }
 
+  saveSharedDriveTimesInBackground(location);
   return availableDates;
 }

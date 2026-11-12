@@ -1,3 +1,6 @@
+import { AsyncLocalStorage } from "node:async_hooks";
+import { createHash } from "node:crypto";
+import { getCache, waitUntil } from "@vercel/functions";
 import { env } from "@/lib/env";
 import type { Location } from "@/lib/types";
 
@@ -58,6 +61,351 @@ const TIME_BANDS: TimeBand[] = [
   { id: "pm-peak", startMins: 15 * 60, repTime: "17:00" },
   { id: "evening", startMins: 18 * 60 + 30, repTime: "19:00" },
 ];
+
+// ---- Shared drive times (Vercel Runtime Cache) ----
+// Each server copy keeps its own memory cache above. This shared store lets a fresh copy reuse visit-time
+// drive times that another copy (or the step-2 warm-up) already looked up. It is optional: every read and
+// write fails open, so if the store is slow, missing or paused, lookups work exactly as before.
+// Only hashes are stored: no addresses or coordinates are written in readable form.
+function sha256(text: string): string {
+  return createHash("sha256").update(text).digest("hex");
+}
+
+// The band layout is part of the name, so a change to TIME_BANDS never reuses times priced on old bands.
+const SHARED_NAMESPACE = `pureluxe-drive-v1-${sha256(JSON.stringify(TIME_BANDS)).slice(0, 8)}`;
+const SHARED_TTL_S = 6 * 60 * 60;
+const SHARED_READ_TIMEOUT_MS = 400;
+const SHARED_BREAKER_MS = 60_000;
+const MAX_TRACKED_LOCATIONS = 100;
+const MAX_KEYS_PER_LOCATION = 4000;
+const MAX_ENTRIES_PER_BUNDLE = 2000;
+const MAX_SHARED_TIMES = 50_000;
+const SHARED_TIMES_PRUNE_TO = 40_000;
+// A real slot search marks itself active (here and in the shared store) so any warm-up gets out of its way.
+const REAL_ACTIVITY_TTL_MS = 15_000;
+const ACTIVE_WRITE_EVERY_MS = 5_000;
+const ACTIVE_MARKER_TTL_S = 15;
+const WARM_MARKER_TTL_S = 15 * 60;
+const SHARED_TIMEOUT = Symbol("shared-timeout");
+const VERCEL_REQUEST_CONTEXT = Symbol.for("@vercel/request-context");
+
+type SharedEntry = { h: string; m: number; at: number }; // h = hashed cache key, m = minutes, at = looked up at
+type SharedBundle = { v: 1; loc: string; entries: SharedEntry[] }; // loc = hashed lead location
+type LocationState = { keys: Set<string>; sharedAt: number; saveChain: Promise<void> };
+type SharedStore = ReturnType<typeof getCache>;
+
+/** Set by the warm-up: it starts no new TomTom lookups once shouldYield() is true, and counts the ones it makes. */
+export type WarmupContext = { shouldYield: () => boolean; newCalls: number };
+
+export class WarmupYieldError extends Error {
+  constructor() {
+    super("Warm-up paused: a lead is waiting on this server");
+    this.name = "WarmupYieldError";
+  }
+}
+
+const driveKeyCollector = new AsyncLocalStorage<Set<string>>();
+const warmupContext = new AsyncLocalStorage<WarmupContext>();
+const sharedDriveTimes = new Map<string, { minutes: number; expiresAt: number }>();
+const sharedByLocation = new Map<string, LocationState>(); // insertion order = least recently used first
+const pendingSharedSaves = new Set<Promise<void>>();
+let realActivityUntil = 0;
+let lastActiveWriteAt = 0;
+let sharedCache: SharedStore | undefined;
+let sharedBrokenUntil = 0;
+
+/** True when the platform's shared cache is reachable (not the library's per-copy memory fallback). */
+function platformCacheAvailable(): boolean {
+  try {
+    const holder = (globalThis as unknown as Record<symbol, { get?: () => { cache?: unknown } | undefined } | undefined>)[
+      VERCEL_REQUEST_CONTEXT
+    ];
+    if (holder?.get?.()?.cache) return true;
+  } catch {
+    /* fall through to the env check */
+  }
+  if (process.env.RUNTIME_CACHE_DISABLE_BUILD_CACHE === "true") return false;
+  return Boolean(process.env.RUNTIME_CACHE_ENDPOINT && process.env.RUNTIME_CACHE_HEADERS);
+}
+
+function sharedStore(): SharedStore | null {
+  if (Date.now() < sharedBrokenUntil) return null;
+  // Without the platform cache the library falls back to a memory cache per server copy, which shares nothing
+  // and cannot tell a warm-up that a lead is waiting on another copy, so treat that as no store.
+  if (!platformCacheAvailable()) return null;
+  if (sharedCache === undefined) {
+    try {
+      sharedCache = getCache({ namespace: SHARED_NAMESPACE, keyHashFunction: (key) => hashKey(key) });
+    } catch {
+      tripSharedBreaker("store setup failed");
+      return null;
+    }
+  }
+  return sharedCache;
+}
+
+function tripSharedBreaker(reason: string): void {
+  if (Date.now() < sharedBrokenUntil) return;
+  sharedBrokenUntil = Date.now() + SHARED_BREAKER_MS;
+  // eslint-disable-next-line no-console
+  console.warn("[distance] shared drive store paused for 60 s", { reason });
+}
+
+async function sharedGet(key: string): Promise<unknown> {
+  const store = sharedStore();
+  if (!store) return null;
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    const result = await Promise.race([
+      store.get(key),
+      new Promise<typeof SHARED_TIMEOUT>((resolve) => {
+        timer = setTimeout(() => resolve(SHARED_TIMEOUT), SHARED_READ_TIMEOUT_MS);
+      }),
+    ]);
+    if (result === SHARED_TIMEOUT) {
+      tripSharedBreaker("read timed out");
+      return null;
+    }
+    return result ?? null;
+  } catch {
+    tripSharedBreaker("read failed");
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+async function sharedSet(key: string, value: unknown, ttl: number, name: string): Promise<void> {
+  const store = sharedStore();
+  if (!store) return;
+  try {
+    await store.set(key, value, { ttl, name });
+  } catch {
+    tripSharedBreaker("write failed");
+  }
+}
+
+function locKey(location: Location): string {
+  return [location.lat.toFixed(5), location.lng.toFixed(5), env.distanceProvider].join("|");
+}
+
+function locTag(loc: string): string {
+  return sha256(`loc|${loc}`).slice(0, 16);
+}
+
+function hashKey(key: string): string {
+  return sha256(key).slice(0, 32);
+}
+
+function locationState(loc: string): LocationState {
+  let state = sharedByLocation.get(loc);
+  if (state) sharedByLocation.delete(loc);
+  else state = { keys: new Set(), sharedAt: 0, saveChain: Promise.resolve() };
+  sharedByLocation.set(loc, state);
+  while (sharedByLocation.size > MAX_TRACKED_LOCATIONS) {
+    const oldest = sharedByLocation.keys().next().value;
+    if (oldest === undefined) break;
+    sharedByLocation.delete(oldest);
+  }
+  return state;
+}
+
+function isSharedEntry(entry: unknown, now: number): entry is SharedEntry {
+  if (!entry || typeof entry !== "object") return false;
+  const { h, m, at } = entry as Record<string, unknown>;
+  return (
+    typeof h === "string" &&
+    /^[0-9a-f]{32}$/.test(h) &&
+    typeof m === "number" &&
+    Number.isFinite(m) &&
+    m >= 0 &&
+    m < 1440 &&
+    typeof at === "number" &&
+    Number.isFinite(at) &&
+    at <= now + 60_000 &&
+    at + BANDED_CACHE_TTL_MS > now
+  );
+}
+
+/** The valid, unexpired entries of a stored bundle for this location (none when it is malformed). */
+function bundleEntries(value: unknown, loc: string, now: number): SharedEntry[] {
+  if (!value || typeof value !== "object") return [];
+  const bundle = value as Partial<SharedBundle>;
+  if (bundle.v !== 1 || bundle.loc !== locTag(loc) || !Array.isArray(bundle.entries)) return [];
+  const entries: SharedEntry[] = [];
+  for (const entry of bundle.entries) {
+    if (entries.length >= MAX_ENTRIES_PER_BUNDLE) break;
+    if (isSharedEntry(entry, now)) entries.push({ h: entry.h, m: entry.m, at: entry.at });
+  }
+  return entries;
+}
+
+function pruneSharedDriveTimes(now: number): void {
+  if (sharedDriveTimes.size <= MAX_SHARED_TIMES) return;
+  for (const [h, entry] of sharedDriveTimes) if (entry.expiresAt <= now) sharedDriveTimes.delete(h);
+  for (const h of sharedDriveTimes.keys()) {
+    if (sharedDriveTimes.size <= SHARED_TIMES_PRUNE_TO) break;
+    sharedDriveTimes.delete(h);
+  }
+}
+
+function loadBundle(value: unknown, loc: string, now: number): number {
+  let loaded = 0;
+  for (const entry of bundleEntries(value, loc, now)) {
+    const expiresAt = entry.at + BANDED_CACHE_TTL_MS;
+    const existing = sharedDriveTimes.get(entry.h);
+    if (existing && existing.expiresAt >= expiresAt) continue;
+    sharedDriveTimes.set(entry.h, { minutes: entry.m, expiresAt });
+    loaded += 1;
+  }
+  pruneSharedDriveTimes(now);
+  return loaded;
+}
+
+/** A shared time for this exact lookup, moved into the memory cache. undefined when there is none. */
+function takeSharedDriveTime(key: string): number | undefined {
+  const h = hashKey(key);
+  const entry = sharedDriveTimes.get(h);
+  if (!entry) return undefined;
+  sharedDriveTimes.delete(h);
+  if (entry.expiresAt <= Date.now()) return undefined;
+  driveCache.set(key, { minutes: entry.minutes, expiresAt: entry.expiresAt });
+  return entry.minutes;
+}
+
+function trackBackground(work: Promise<unknown>): void {
+  const tracked: Promise<void> = work
+    .then(
+      () => undefined,
+      () => undefined,
+    )
+    .finally(() => {
+      pendingSharedSaves.delete(tracked);
+    });
+  pendingSharedSaves.add(tracked);
+  try {
+    waitUntil(tracked);
+  } catch {
+    /* outside Vercel nothing needs keeping alive */
+  }
+}
+
+function markRealActivity(now: number): void {
+  realActivityUntil = now + REAL_ACTIVITY_TTL_MS;
+  if (now - lastActiveWriteAt < ACTIVE_WRITE_EVERY_MS) return;
+  lastActiveWriteAt = now;
+  trackBackground(sharedSet("active", { at: now }, ACTIVE_MARKER_TTL_S, "drive-active"));
+}
+
+async function saveSharedDriveTimes(loc: string, state: LocationState): Promise<void> {
+  const syncAt = Date.now();
+  const fresh: SharedEntry[] = [];
+  let hasNew = false;
+  for (const key of state.keys) {
+    if (key.endsWith("|live")) continue;
+    const hit = driveCache.get(key);
+    if (!hit || hit.expiresAt <= syncAt) continue;
+    const at = hit.expiresAt - BANDED_CACHE_TTL_MS;
+    if (at > state.sharedAt) hasNew = true;
+    fresh.push({ h: hashKey(key), m: hit.minutes, at });
+  }
+  if (!hasNew || !sharedStore()) return;
+  const stored = await sharedGet(`bundle|${loc}`);
+  if (!sharedStore()) return; // the read timed out: leave the stored bundle alone, a later search retries
+  const merged = new Map<string, SharedEntry>();
+  for (const entry of bundleEntries(stored, loc, syncAt)) merged.set(entry.h, entry);
+  let added = 0;
+  let changed = 0;
+  for (const entry of fresh) {
+    const existing = merged.get(entry.h);
+    if (existing && existing.at >= entry.at) continue;
+    if (!existing) added += 1;
+    changed += 1;
+    merged.set(entry.h, entry);
+  }
+  if (changed > 0) {
+    const entries = [...merged.values()].sort((a, b) => b.at - a.at).slice(0, MAX_ENTRIES_PER_BUNDLE);
+    const bundle: SharedBundle = { v: 1, loc: locTag(loc), entries };
+    await sharedSet(`bundle|${loc}`, bundle, SHARED_TTL_S, "drive-times");
+    // eslint-disable-next-line no-console
+    console.info("[distance] shared drive times saved", { added, total: entries.length });
+  }
+  state.sharedAt = Math.max(state.sharedAt, syncAt);
+}
+
+/** Runs fn and records the drive-time lookups it makes for this lead, so they can be shared. */
+export function trackDriveKeys<T>(location: Location, fn: () => Promise<T>): Promise<T> {
+  let keys: Set<string> | undefined;
+  try {
+    keys = locationState(locKey(location)).keys;
+  } catch {
+    keys = undefined;
+  }
+  return keys ? driveKeyCollector.run(keys, fn) : fn();
+}
+
+/** Loads drive times other server copies saved for this lead. Never throws; waits at most ~0.4 s. */
+export async function primeSharedDriveTimes(location: Location): Promise<void> {
+  try {
+    const startedAt = Date.now();
+    if (!warmupContext.getStore()) markRealActivity(startedAt);
+    if (!sharedStore()) return;
+    const loc = locKey(location);
+    locationState(loc);
+    const value = await sharedGet(`bundle|${loc}`);
+    const loaded = value ? loadBundle(value, loc, Date.now()) : 0;
+    // eslint-disable-next-line no-console
+    console.info("[distance] shared drive times loaded", { loaded, found: value !== null, ms: Date.now() - startedAt });
+  } catch {
+    /* optional speed-up only */
+  }
+}
+
+/** Saves this lead's new visit-time drive times for other server copies, in the background. Never throws. */
+export function saveSharedDriveTimesInBackground(location: Location): void {
+  try {
+    const loc = locKey(location);
+    const state = locationState(loc);
+    const run: Promise<void> = state.saveChain.then(() => saveSharedDriveTimes(loc, state)).catch(() => undefined);
+    state.saveChain = run;
+    trackBackground(run);
+  } catch {
+    /* optional speed-up only */
+  }
+}
+
+/** Waits for the background saves started on this server copy. */
+export async function flushSharedDriveSaves(): Promise<void> {
+  await Promise.allSettled([...pendingSharedSaves]);
+}
+
+export function runAsWarmup<T>(ctx: WarmupContext, fn: () => Promise<T>): Promise<T> {
+  return warmupContext.run(ctx, fn);
+}
+
+export function isRealActivityHere(): boolean {
+  return realActivityUntil > Date.now();
+}
+
+export async function isRealActivityShared(): Promise<boolean> {
+  return (await sharedGet("active")) !== null;
+}
+
+export function isSharedDriveStoreAvailable(): boolean {
+  return sharedStore() !== null;
+}
+
+/** False when another server copy already warmed (or is warming) this lead in the last 15 min. */
+export async function claimSharedWarm(location: Location): Promise<boolean> {
+  try {
+    const key = `warm|${locKey(location)}`;
+    if ((await sharedGet(key)) !== null) return false;
+    await sharedSet(key, { at: Date.now() }, WARM_MARKER_TTL_S, "drive-warm");
+    return true;
+  } catch {
+    return true;
+  }
+}
 
 function bandFor(time: string): TimeBand {
   const mins = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
@@ -148,8 +496,14 @@ function knownUnroutable(origin: Location, destination: Location): boolean {
 export async function getDriveMinutes(origin: Location, destination: Location, departure?: Departure): Promise<number> {
   const resolved = departure ? resolveDeparture(departure) : undefined;
   const key = cacheKey(origin, destination, resolved?.bandKey);
+  const collected = driveKeyCollector.getStore();
+  if (collected && collected.size < MAX_KEYS_PER_LOCATION) collected.add(key);
   const hit = driveCache.get(key);
   if (hit && hit.expiresAt > Date.now()) return hit.minutes;
+  if (resolved && sharedDriveTimes.size > 0) {
+    const shared = takeSharedDriveTime(key);
+    if (shared !== undefined) return shared;
+  }
 
   // Same error family as a fresh failure, so callers treat it the same way (the slot is just not offered).
   if (knownUnroutable(origin, destination)) {
@@ -158,6 +512,11 @@ export async function getDriveMinutes(origin: Location, destination: Location, d
 
   const inflight = inflightDriveRequests.get(key);
   if (inflight) return inflight;
+
+  // A warm-up never starts a new lookup once a lead is waiting (joining one already in flight is fine).
+  const warmup = warmupContext.getStore();
+  if (warmup?.shouldYield()) throw new WarmupYieldError();
+  if (!warmup) markRealActivity(Date.now());
 
   if (env.distanceProvider !== "tomtom" || !env.tomtomApiKey) {
     throw new Error("TomTom distance provider is required");
@@ -267,6 +626,8 @@ async function fetchTomTomRouteMinutes(origin: Location, destination: Location, 
   url.searchParams.set("routeType", "fastest");
   if (departAt) url.searchParams.set("departAt", departAt);
 
+  const warmup = warmupContext.getStore();
+  if (warmup) warmup.newCalls += 1;
   const response = await fetch(url.toString());
   if (!response.ok) {
     let details = "";

@@ -1,7 +1,12 @@
+import { after } from "next/server";
 import { corsOptions } from "@/lib/cors";
 import { jsonError, jsonOk } from "@/lib/http";
 import { geocodeAddress, isWithinServiceArea } from "@/lib/address";
 import { validateAddressSchema } from "@/lib/validators";
+import { warmDriveTimes } from "@/lib/warm-drive-times";
+
+// Room for the background drive-time warm-up after the response (about 15-20 s at most).
+export const maxDuration = 60;
 
 export const OPTIONS = corsOptions;
 
@@ -13,6 +18,17 @@ export async function POST(request: Request) {
 
     const geo = await geocodeAddress(parsed.data.address);
     const valid = await isWithinServiceArea(geo.lat, geo.lng);
+
+    // Speed: once the address is in the area, look up this lead's visit-time drive times in the background,
+    // so the slot screen a few steps later skips most of its lookups. The response is not delayed.
+    if (valid && body?.warm !== false) {
+      const location = { lat: geo.lat, lng: geo.lng };
+      try {
+        after(() => warmDriveTimes(location));
+      } catch {
+        /* outside a request: skip */
+      }
+    }
 
     return jsonOk(
       {

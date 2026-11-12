@@ -87,7 +87,12 @@ const db = vi.hoisted(() => {
 });
 
 vi.mock("@/lib/supabase", () => ({ supabaseAdmin: db.client, supabasePublic: db.client }));
-vi.mock("@/lib/distance", () => ({ getDriveMinutes: vi.fn(async () => 10) }));
+vi.mock("@/lib/distance", () => ({
+  getDriveMinutes: vi.fn(async () => 10),
+  primeSharedDriveTimes: vi.fn(async () => {}),
+  saveSharedDriveTimesInBackground: vi.fn(),
+  trackDriveKeys: vi.fn((_location: unknown, fn: () => Promise<unknown>) => fn()),
+}));
 
 const mocked = vi.mocked(getDriveMinutes);
 const location = { lat: 55.8, lng: -3.8 };
