@@ -48,8 +48,9 @@ describe("markAirtableLeadTilingDisqualified", () => {
 
     expect(ok).toBe(true);
     const fallback = formulaOf(calls[1]);
-    expect(fallback).toContain('{phone}="+447700900123"');
-    expect(fallback).toContain('{phone}="07700900123"');
+    // Airtable phones can hold spaces ("+44 7700 900123"), so the search strips them (ab28d2e).
+    expect(fallback).toContain('SUBSTITUTE({phone}," ","")="+447700900123"');
+    expect(fallback).toContain('SUBSTITUTE({phone}," ","")="07700900123"');
     expect(fallback).toContain('{email}="a@b.com"');
     expect(calls[2].url).toContain("/leads/recB");
   });
