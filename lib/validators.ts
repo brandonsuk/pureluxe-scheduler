@@ -53,6 +53,9 @@ export const bookSchema = z.object({
   wall_type: z.string().min(1).optional(),
   budget: z.string().min(1).optional(),
   override_max_drive: z.boolean().optional(),
+  // CRM "book anyway": skips open-hours and drive checks. Only honoured with the admin password.
+  force: z.boolean().optional(),
+  admin_password: z.string().optional(),
 });
 
 export const preferredSlotsSchema = z.object({
