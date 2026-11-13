@@ -363,3 +363,43 @@ describe("findBestSlots 5 more", () => {
     expect(b.featured_slots.some((slot) => shownKeys.has(keyOf(slot)))).toBe(false);
   });
 });
+
+describe("findBestSlots time-band cap", () => {
+  const bandOf = (time: string) => {
+    const mins = Number(time.slice(0, 2)) * 60 + Number(time.slice(3, 5));
+    return mins < 12 * 60 ? "morning" : mins < 15 * 60 ? "midday" : "late_day";
+  };
+  const bandCounts = (slots: { start_time: string }[]) => {
+    const counts: Record<string, number> = {};
+    for (const slot of slots) counts[bandOf(slot.start_time)] = (counts[bandOf(slot.start_time)] || 0) + 1;
+    return counts;
+  };
+  const onScreen = (slots: { date: string; start_time: string }[]) =>
+    slots.map(({ date, start_time }) => ({ date, start_time }));
+
+  it("shows at most 2 per time band in each batch of 5, still over 4 days", async () => {
+    const dates = isoDates(20);
+    openWindows(dates); // empty days: 09:00 scores best everywhere
+    const first = await findBestSlots(location, 60, FIRST);
+    const more = await findBestSlots(location, 60, FIRST, undefined, onScreen(first.featured_slots));
+
+    for (const batch of [first.featured_slots, more.featured_slots]) {
+      expect(batch).toHaveLength(5);
+      const counts = bandCounts(batch);
+      expect(Object.values(counts).every((n) => n <= 2)).toBe(true);
+      expect(Object.keys(counts)).toHaveLength(3);
+      expect(new Set(batch.map((slot) => slot.date)).size).toBeGreaterThanOrEqual(4);
+    }
+  });
+
+  it("drops the cap rather than show fewer than 5 when only mornings are free", async () => {
+    const dates = isoDates(20);
+    openWindows(dates, "09:00", "11:45"); // end_time is the latest start: mornings only
+
+    const { featured_slots } = await findBestSlots(location, 60, FIRST);
+
+    expect(featured_slots).toHaveLength(5);
+    expect(bandCounts(featured_slots)).toEqual({ morning: 5 });
+    expect(new Set(featured_slots.map((slot) => slot.date)).size).toBeGreaterThanOrEqual(4);
+  });
+});

@@ -288,6 +288,9 @@ function pickDiverseSlots(
     targetDistinctBands?: number;
     dayWeight?: number;
     bandWeight?: number;
+    // Most picks per time band in this batch (e.g. 2 gives 2-2-1 over 5). Soft: when only capped bands have
+    // free slots, the cap is dropped so leads still get a full batch. Times already on screen don't count.
+    maxPerBand?: number;
     // "5 more": times already on screen. They are never picked again, count toward the 2-a-day cap, and no
     // new pick sits within minGapMins of one on the same day. Their days are not new days. The day and band
     // targets apply to the new picks only. Without it, picking is exactly as before.
@@ -301,6 +304,11 @@ function pickDiverseSlots(
   const targetDistinctBands = options.targetDistinctBands || 0;
   const dayWeight = options.dayWeight ?? 1;
   const bandWeight = options.bandWeight ?? 1;
+  const maxPerBand = options.maxPerBand ?? Number.POSITIVE_INFINITY;
+  const bandHasRoom = (slot: CandidateSlot) => (perBand.get(getTimeBand(slot.start_time)) || 0) < maxPerBand;
+  // Best candidate inside the band cap; if the cap leaves none, the best of all.
+  const pickWithBandCap = (candidates: CandidateSlot[]) =>
+    pickBestCandidate(candidates.filter(bandHasRoom)) ?? pickBestCandidate(candidates);
 
   const shownKeys = new Set<string>();
   const shown: ShownSlot[] = [];
@@ -351,17 +359,22 @@ function pickDiverseSlots(
 
   if (options.preferDistinctDayFirst) {
     const seenDays = new Set<string>();
-    for (const slot of scored) {
-      if (selected.length >= count) break;
-      if ((perDay.get(slot.date) || 0) > 0) continue;
-      if (isShown(slot)) continue;
-      if (!isSpacedFromSelected(slot, selected, options.minGapMins)) continue;
-      selected.push(slot);
-      seenDays.add(slot.date);
-      perDay.set(slot.date, 1);
-      const band = getTimeBand(slot.start_time);
-      perBand.set(band, (perBand.get(band) || 0) + 1);
+    // First inside the band cap; if that leaves too few days, again without it, so days still come first.
+    for (const capBands of [true, false]) {
       if (seenDays.size >= targetDistinctDays) break;
+      for (const slot of scored) {
+        if (selected.length >= count) break;
+        if ((perDay.get(slot.date) || 0) > 0) continue;
+        if (isShown(slot)) continue;
+        if (capBands && !bandHasRoom(slot)) continue;
+        if (!isSpacedFromSelected(slot, selected, options.minGapMins)) continue;
+        selected.push(slot);
+        seenDays.add(slot.date);
+        perDay.set(slot.date, 1);
+        const band = getTimeBand(slot.start_time);
+        perBand.set(band, (perBand.get(band) || 0) + 1);
+        if (seenDays.size >= targetDistinctDays) break;
+      }
     }
   }
 
@@ -374,7 +387,7 @@ function pickDiverseSlots(
       if (!isSpacedFromSelected(slot, shown, options.minGapMins)) return false;
       return true;
     });
-    const best = pickBestCandidate(candidates);
+    const best = pickWithBandCap(candidates);
     if (!best) break;
     selected.push(best);
     perDay.set(best.date, (perDay.get(best.date) || 0) + 1);
@@ -393,7 +406,7 @@ function pickDiverseSlots(
         if (!isSpacedFromSelected(slot, shown, options.minGapMins)) return false;
         return true;
       });
-      const best = pickBestCandidate(candidates);
+      const best = pickWithBandCap(candidates);
       if (!best) break;
       selected.push(best);
       perDay.set(best.date, (perDay.get(best.date) || 0) + 1);
@@ -585,6 +598,7 @@ export async function findBestSlots(
     targetDistinctBands: 3,
     dayWeight: 1.2,
     bandWeight: 1.0,
+    maxPerBand: 2,
     shown,
   });
   if (shownDays.size) {
