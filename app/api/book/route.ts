@@ -46,6 +46,8 @@ function normalizeBookPayload(input: Record<string, unknown>) {
     budget: input.budget,
     override_max_drive:
       typeof input.override_max_drive === "boolean" ? input.override_max_drive : undefined,
+    force: input.force === true ? true : undefined,
+    admin_password: typeof input.admin_password === "string" ? input.admin_password : undefined,
   };
 }
 
@@ -64,7 +66,30 @@ export async function POST(request: Request) {
       return jsonError("Cannot book more than 30 days in advance", request, 422);
     }
     const existing = await fetchDayAppointments(payload.date);
-    const check = await validateCandidateSlot(
+
+    // CRM override ("book anyway"): admin only. Skips open hours and drive rules,
+    // but never double-books over another visit or a calendar block.
+    if (payload.force) {
+      if (!env.adminPassword || payload.admin_password !== env.adminPassword) {
+        return jsonError("Unauthorised", request, 401);
+      }
+      const [y, mo, d] = payload.date.split("-").map(Number);
+      const [h, mi] = payload.start_time.split(":").map(Number);
+      if (![y, mo, d, h, mi].every(Number.isFinite) || h > 23 || mi > 59) {
+        return jsonError("Invalid date or time", request, 422);
+      }
+      if (payload.date < new Date().toISOString().slice(0, 10)) {
+        return jsonError("That date has passed", request, 422);
+      }
+      const startMins = h * 60 + mi;
+      const endMins = startMins + payload.duration_mins;
+      const toMins = (t: string) => Number(t.slice(0, 2)) * 60 + Number(t.slice(3, 5));
+      if (endMins > 24 * 60) return jsonError("Visit would run past midnight", request, 422);
+      const clash = existing.some((a) => startMins < toMins(a.end_time) && toMins(a.start_time) < endMins);
+      if (clash) return jsonError("Slot no longer available: overlap", request, 409);
+    }
+
+    const check = payload.force ? { valid: true as const, reason: "" } : await validateCandidateSlot(
       {
         date: payload.date,
         start_time: payload.start_time,
