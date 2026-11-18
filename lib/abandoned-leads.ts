@@ -3,8 +3,11 @@ import { geocodeAddress, isWithinServiceArea } from "@/lib/address";
 import { env } from "@/lib/env";
 import { sendAbandonedLeadFollowUp } from "@/lib/notifications";
 import { markAirtableAbandonedSmsSent, markAirtableLeadTilingDisqualified } from "@/lib/airtable-sync";
+import { emailKey, phoneKey } from "@/lib/phone";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDateInTimeZone } from "@/lib/time";
+
+export { phoneCandidates } from "@/lib/phone";
 
 type LeadProgressRow = Record<string, unknown> & {
   submission_id?: string;
@@ -71,17 +74,6 @@ function normalizePhoneForMatch(phone: string): string {
   return phone.replace(/[^\d+]/g, "");
 }
 
-export function phoneCandidates(rawPhone: string): string[] {
-  const normalized = normalizePhoneForMatch(rawPhone);
-  const out = new Set<string>([normalized]);
-  const digitsOnly = normalized.replace(/^\+/, "");
-
-  if (digitsOnly.startsWith("44")) out.add(`0${digitsOnly.slice(2)}`);
-  if (digitsOnly.startsWith("0")) out.add(`+44${digitsOnly.slice(1)}`);
-
-  return [...out].filter(Boolean);
-}
-
 function hasValidPhone(phone: string): boolean {
   const digitsOnly = normalizePhoneForMatch(phone).replace(/\D/g, "");
   return digitsOnly.length >= 10;
@@ -135,18 +127,48 @@ async function loadExistingTrackers(sessionIds: string[]): Promise<Map<string, A
   return new Map(((data || []) as AbandonedTrackerRow[]).map((row) => [row.lead_session_id, row]));
 }
 
-async function hasUpcomingConfirmedBooking(phone: string): Promise<boolean> {
-  const today = todayIsoDateInTimeZone(env.googleCalendarTimezone);
-  const { count, error } = await supabaseAdmin
-    .from("appointments")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "confirmed")
-    .gte("date", today)
-    .in("client_phone", phoneCandidates(phone));
+export type BookedContacts = { phones: Set<string>; emails: Set<string> };
 
-  if (error) throw new Error(error.message);
-  return (count || 0) > 0;
+// How far back a booking (even one since cancelled or moved) still counts as
+// "this person finished the form".
+const RECENT_BOOKING_DAYS = 30;
+
+/**
+ * Everyone with a visit coming up, or who booked one in the last 30 days: they
+ * finished the form, so they never get the "you didn't finish" texts. Loaded once
+ * per run and matched on the last 10 digits of the phone, or the email. (The old
+ * check matched the phone exactly, so "+44 7…" bookings, about 40%, never matched
+ * and those people were texted after booking.)
+ */
+async function loadBookedContacts(): Promise<BookedContacts> {
+  const today = todayIsoDateInTimeZone(env.googleCalendarTimezone);
+  const since = new Date(Date.now() - RECENT_BOOKING_DAYS * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const [upcoming, recent] = await Promise.all([
+    supabaseAdmin.from("appointments").select("client_phone,client_email").eq("status", "confirmed").gte("date", today).limit(5000),
+    supabaseAdmin.from("appointments").select("client_phone,client_email").gte("created_at", since).limit(5000),
+  ]);
+  if (upcoming.error) throw new Error(upcoming.error.message);
+  if (recent.error) throw new Error(recent.error.message);
+
+  const booked: BookedContacts = { phones: new Set(), emails: new Set() };
+  for (const row of [...(upcoming.data || []), ...(recent.data || [])] as { client_phone?: string | null; client_email?: string | null }[]) {
+    const key = phoneKey(row.client_phone);
+    const mail = emailKey(row.client_email);
+    if (key) booked.phones.add(key);
+    if (mail) booked.emails.add(mail);
+  }
+  return booked;
 }
+
+export function isBookedContact(booked: BookedContacts, phone: string, email: string): boolean {
+  const key = phoneKey(phone);
+  const mail = emailKey(email);
+  return Boolean((key && booked.phones.has(key)) || (mail && booked.emails.has(mail)));
+}
+
+// Funnel step 5 = the FinalDetails page, which comes after booking or asking for
+// a callback: the lead finished the form.
+const FORM_FINISHED_STEP = 5;
 
 async function upsertTracker(row: {
   lead_session_id: string;
@@ -236,6 +258,11 @@ export async function runAbandonedLeadCheck(): Promise<{
   let suppressedInvalidPhone = 0;
   let sendFailed = 0;
   const postcodeAreaCache = new Map<string, boolean>(); // postcode → outOfArea
+  let bookedContacts: BookedContacts | null = null;
+  const hasBooked = async (phone: string, email: string) => {
+    bookedContacts ??= await loadBookedContacts();
+    return isBookedContact(bookedContacts, phone, email);
+  };
 
   for (const row of latestRows) {
     const leadSessionId = String(row.lead_session_id || "");
@@ -285,6 +312,27 @@ export async function runAbandonedLeadCheck(): Promise<{
       continue;
     }
 
+    // Finished the form (booked, or asked for a callback): never chase.
+    if (currentStep >= FORM_FINISHED_STEP) {
+      suppressedBooked += 1;
+      await upsertTracker({
+        lead_session_id: leadSessionId,
+        submission_id: typeof row.submission_id === "string" ? row.submission_id : null,
+        client_name: clientName,
+        client_phone: clientPhone,
+        client_email: clientEmail,
+        postcode,
+        current_step: currentStep,
+        last_activity_at: lastActivityAt,
+        is_disqualified: isDisqualified(row),
+        reminder_sent_at: tracker?.reminder_sent_at ?? null,
+        follow_up_2_sent_at: tracker?.follow_up_2_sent_at ?? null,
+        follow_up_3_sent_at: tracker?.follow_up_3_sent_at ?? null,
+        suppressed_reason: "booked",
+      });
+      continue;
+    }
+
     if (tracker?.reminder_sent_at) {
       // Text 1 already sent: decide whether text 2 or text 3 is due.
       const firstSentAt = tracker.reminder_sent_at;
@@ -311,7 +359,7 @@ export async function runAbandonedLeadCheck(): Promise<{
       };
 
       // Don't chase people who have booked since.
-      if (await hasUpcomingConfirmedBooking(clientPhone)) {
+      if (await hasBooked(clientPhone, clientEmail)) {
         suppressedBooked += 1;
         await upsertTracker({ ...base, suppressed_reason: "booked" });
         continue;
@@ -322,7 +370,7 @@ export async function runAbandonedLeadCheck(): Promise<{
           clientName, clientPhone, clientEmail,
           resumeLink: buildResumeLink(leadSessionId),
         });
-        await markAirtableAbandonedSmsSent(clientPhone, clientEmail);
+        await markAirtableAbandonedSmsSent(clientPhone, clientEmail, leadSessionId);
         const sentAt = new Date().toISOString();
         if (wantSecond) {
           // Still in the sequence: text 3 comes later.
@@ -417,7 +465,7 @@ export async function runAbandonedLeadCheck(): Promise<{
       continue;
     }
 
-    if (await hasUpcomingConfirmedBooking(clientPhone)) {
+    if (await hasBooked(clientPhone, clientEmail)) {
       suppressedBooked += 1;
       await upsertTracker({
         lead_session_id: leadSessionId,
@@ -443,7 +491,7 @@ export async function runAbandonedLeadCheck(): Promise<{
         resumeLink: buildResumeLink(leadSessionId),
       });
 
-      await markAirtableAbandonedSmsSent(clientPhone, clientEmail);
+      await markAirtableAbandonedSmsSent(clientPhone, clientEmail, leadSessionId);
 
       const sentAt = new Date().toISOString();
       await upsertTracker({

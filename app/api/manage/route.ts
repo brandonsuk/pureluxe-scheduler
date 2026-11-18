@@ -177,7 +177,7 @@ export async function POST(request: Request) {
     return page("Something went wrong", `<p>We couldn't cancel online just now. Please call Allan, our surveyor, on <strong>${SURVEYOR_PHONE}</strong>.</p>`, 500);
   }
 
-  markAirtableAppointmentCancelled(a.client_phone, a.client_email).catch((e) => {
+  markAirtableAppointmentCancelled(a.client_phone, a.client_email, a.date).catch((e) => {
     // eslint-disable-next-line no-console
     console.error("manage_cancel_airtable_sync_failed", e);
   });

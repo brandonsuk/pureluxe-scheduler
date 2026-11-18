@@ -233,6 +233,8 @@ async function checkEmailAllowed(to: string): Promise<boolean> {
 
 async function sendEmail(to: string, subject: string, text: string, options?: { html?: string }) {
   if (!resend) return;
+  // CRM-added leads can have no email.
+  if (!to || !to.includes("@")) return;
   if (!isAdminAddress(to)) {
     const allowed = await checkEmailAllowed(to);
     if (!allowed) return;
