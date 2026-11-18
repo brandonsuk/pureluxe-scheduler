@@ -133,7 +133,7 @@ describe("markAirtableAppointmentBooked", () => {
     expect(await markAirtableAppointmentBooked("07310 402228", "", "2026-11-17", "9:00", { recordId: "recSpareRow000001" })).toBe(true);
     const patch = calls.find((c) => c.init?.method === "PATCH")!;
     expect(patch.url).toContain("/leads/recSpareRow000001");
-    expect(JSON.parse(String(patch.init?.body)).fields.booked_time).toBe("09:00");
+    expect(JSON.parse(String(patch.init?.body)).fields).toMatchObject({ booked_time: "09:00", "Booked Appointment": true, Disqualified: false });
     expect(calls.some((c) => c.url.includes("filterByFormula"))).toBe(false);
   });
 

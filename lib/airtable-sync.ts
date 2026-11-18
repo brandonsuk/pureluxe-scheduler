@@ -133,7 +133,7 @@ async function patchRecord(id: string, fields: Record<string, unknown>): Promise
 
 /**
  * Marks the lead's Airtable row as booked (Booked Appointment = true, booked_date,
- * booked_time, Cancelled Appointment = false). Called when a booking is confirmed
+ * booked_time, Cancelled Appointment = false, Disqualified = false). Called when a booking is confirmed
  * via /api/book, and when a visit is moved in a calendar.
  *
  * Which row:
@@ -182,6 +182,8 @@ export async function markAirtableAppointmentBooked(
     return await patchRecord(id, {
       "Booked Appointment": true,
       "Cancelled Appointment": false,
+      // A booked lead isn't disqualified (the CRM hides Disqualified rows from Visits).
+      Disqualified: false,
       booked_date: date,
       booked_time: paddedTime,
     });
