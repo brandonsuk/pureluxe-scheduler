@@ -297,7 +297,7 @@ export async function POST(request: Request) {
   }
 
   // Sync cancellation back to Airtable CRM (fire-and-forget)
-  markAirtableAppointmentCancelled(nextAppt.client_phone, nextAppt.client_email).catch((e) => {
+  markAirtableAppointmentCancelled(nextAppt.client_phone, nextAppt.client_email, nextAppt.date).catch((e) => {
     // eslint-disable-next-line no-console
     console.error("inbound_sms_airtable_sync_failed", e);
   });

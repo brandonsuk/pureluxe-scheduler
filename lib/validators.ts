@@ -43,8 +43,12 @@ export const bookSchema = z.object({
   duration_mins: z.coerce.number().int().min(30).max(180),
   client_name: z.string().min(2),
   client_phone: z.string().min(7),
-  client_email: z.string().email(),
-  address: z.string().min(5),
+  // Optional: leads added by hand in the CRM may have no email (stored as "").
+  client_email: z.preprocess(
+    (v) => (v == null ? "" : typeof v === "string" ? v.trim() : v),
+    z.union([z.literal(""), z.string().email()]),
+  ),
+  address: z.string().trim().min(2),
   lat: z.coerce.number(),
   lng: z.coerce.number(),
   readiness_level: readinessSchema,
@@ -56,6 +60,8 @@ export const bookSchema = z.object({
   // CRM "book anyway": skips open-hours and drive checks. Only honoured with the admin password.
   force: z.boolean().optional(),
   admin_password: z.string().optional(),
+  // CRM bookings name the exact Airtable lead row to mark as booked.
+  airtable_record_id: z.string().regex(/^rec[A-Za-z0-9]{14}$/).optional(),
 });
 
 export const preferredSlotsSchema = z.object({

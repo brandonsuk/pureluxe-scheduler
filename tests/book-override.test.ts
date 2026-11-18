@@ -13,11 +13,14 @@ const validate = vi.fn(async () => ({ valid: false, reason: "max_drive" }));
 vi.mock("@/lib/scheduler", () => ({ fetchDayAppointments: async () => dayBlocks, validateCandidateSlot: validate }));
 vi.mock("@/lib/notifications", () => ({ sendBookingNotifications: vi.fn(async () => undefined) }));
 vi.mock("@/lib/google-calendar", () => ({ createCalendarEvent: vi.fn(async () => null), cancelCalendarEvent: vi.fn(async () => undefined) }));
-vi.mock("@/lib/airtable-sync", () => ({ markAirtableAppointmentBooked: vi.fn(async () => undefined) }));
+const booked = vi.fn(async (..._args: unknown[]) => undefined);
+vi.mock("@/lib/airtable-sync", () => ({ markAirtableAppointmentBooked: booked }));
+const lookups: { column: string; values: string[] }[] = [];
 vi.mock("@/lib/supabase", () => {
   const chain: Record<string, unknown> = {};
   Object.assign(chain, {
     select: () => chain, eq: () => chain, gte: () => chain, or: async () => ({ data: [], error: null }),
+    in: async (column: string, values: string[]) => { lookups.push({ column, values }); return { data: [], error: null }; },
     insert: (row: Record<string, unknown>) => { inserts.push(row); return { select: () => ({ single: async () => ({ data: { id: "a1", ...row }, error: null }) }) }; },
     update: () => ({ eq: async () => ({ error: null }), in: async () => ({ error: null }) }),
   });
@@ -34,7 +37,7 @@ const call = (extra: Record<string, unknown>) =>
   POST(new Request("http://x/api/book", { method: "POST", body: JSON.stringify({ ...base, ...extra }) }));
 
 describe("POST /api/book force (CRM book anyway)", () => {
-  beforeEach(() => { dayBlocks = []; inserts.length = 0; validate.mockClear(); });
+  beforeEach(() => { dayBlocks = []; inserts.length = 0; lookups.length = 0; validate.mockClear(); booked.mockClear(); });
 
   it("without force, normal validation still refuses the slot", async () => {
     expect((await call({})).status).toBe(409);
@@ -61,5 +64,44 @@ describe("POST /api/book force (CRM book anyway)", () => {
   });
   it("force refuses a past date", async () => {
     expect((await call({ force: true, admin_password: "pw", date: day(-1) })).status).toBe(422);
+  });
+});
+
+describe("POST /api/book: CRM leads (no email, short address, exact Airtable row)", () => {
+  beforeEach(() => { dayBlocks = []; inserts.length = 0; lookups.length = 0; booked.mockClear(); });
+
+  it("books a lead with no email (CRM-added lead) and stores it as empty", async () => {
+    const { client_email: _drop, ...noEmail } = base;
+    const r = await POST(new Request("http://x/api/book", {
+      method: "POST", body: JSON.stringify({ ...noEmail, force: true, admin_password: "pw" }),
+    }));
+    expect(r.status).toBe(200);
+    expect(inserts[0]).toMatchObject({ client_email: "" });
+    // Rebook check looks up the phone only, never every booking with an empty email.
+    expect(lookups.map((l) => l.column)).toEqual(["client_phone"]);
+  });
+
+  it("accepts an empty-string email and a short address", async () => {
+    expect((await call({ force: true, admin_password: "pw", client_email: "", address: "G1" })).status).toBe(200);
+  });
+
+  it("still refuses a malformed email", async () => {
+    expect((await call({ force: true, admin_password: "pw", client_email: "not-an-email" })).status).toBe(422);
+  });
+
+  it("rebook check matches the phone in every stored format", async () => {
+    await call({ force: true, admin_password: "pw", client_phone: "+447700900123" });
+    const phones = lookups.find((l) => l.column === "client_phone")!.values;
+    expect(phones).toEqual(expect.arrayContaining(["+447700900123", "07700900123", "+44 7700900123", "+44 7700 900123"]));
+  });
+
+  it("passes the CRM's Airtable record id through to the Airtable sync", async () => {
+    await call({ force: true, admin_password: "pw", airtable_record_id: "recEtUI4yUosUVj6o" });
+    expect(booked).toHaveBeenCalledTimes(1);
+    expect(booked.mock.calls[0][4]).toEqual({ recordId: "recEtUI4yUosUVj6o" });
+  });
+
+  it("refuses a malformed Airtable record id", async () => {
+    expect((await call({ force: true, admin_password: "pw", airtable_record_id: "rec\"x" })).status).toBe(422);
   });
 });

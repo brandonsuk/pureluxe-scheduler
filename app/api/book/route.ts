@@ -9,6 +9,7 @@ import { supabaseAdmin } from "@/lib/supabase";
 import { sendBookingNotifications } from "@/lib/notifications";
 import { createCalendarEvent, cancelCalendarEvent } from "@/lib/google-calendar";
 import { markAirtableAppointmentBooked } from "@/lib/airtable-sync";
+import { phoneCandidates } from "@/lib/phone";
 
 export const OPTIONS = corsOptions;
 
@@ -48,6 +49,8 @@ function normalizeBookPayload(input: Record<string, unknown>) {
       typeof input.override_max_drive === "boolean" ? input.override_max_drive : undefined,
     force: input.force === true ? true : undefined,
     admin_password: typeof input.admin_password === "string" ? input.admin_password : undefined,
+    airtable_record_id:
+      typeof input.airtable_record_id === "string" && input.airtable_record_id ? input.airtable_record_id : undefined,
   };
 }
 
@@ -104,13 +107,32 @@ export async function POST(request: Request) {
 
     // Cancel any existing upcoming confirmed booking for this lead before creating a new one.
     // We only look at future dates so past appointments don't prevent a lead from re-booking.
+    // Phone in any stored format ("+44 7…", "07…"), or the email when there is one.
     const today = new Date().toISOString().slice(0, 10);
-    const { data: existingBookings } = await supabaseAdmin
-      .from("appointments")
-      .select("id, google_event_id, thomas_event_id, reschedule_count")
-      .eq("status", "confirmed")
-      .gte("date", today)
-      .or(`client_phone.eq.${payload.client_phone},client_email.eq.${payload.client_email}`);
+    const upcomingFor = (column: "client_phone" | "client_email", values: string[]) =>
+      supabaseAdmin
+        .from("appointments")
+        .select("id, google_event_id, thomas_event_id, reschedule_count")
+        .eq("status", "confirmed")
+        .gte("date", today)
+        .in(column, values);
+    type UpcomingBooking = {
+      id: string;
+      google_event_id?: string | null;
+      thomas_event_id?: string | null;
+      reschedule_count?: number | null;
+    };
+    const none = Promise.resolve({ data: [] as UpcomingBooking[] });
+    const phones = phoneCandidates(payload.client_phone);
+    const [byPhone, byEmail] = await Promise.all([
+      phones.length ? upcomingFor("client_phone", phones) : none,
+      payload.client_email ? upcomingFor("client_email", [payload.client_email]) : none,
+    ]);
+    const existingBookings: UpcomingBooking[] = [
+      ...new Map(
+        [...((byPhone.data || []) as UpcomingBooking[]), ...((byEmail.data || []) as UpcomingBooking[])].map((b) => [b.id, b]),
+      ).values(),
+    ];
 
     // Rebooking over an upcoming visit counts as a reschedule (max is enforced on the manage page).
     let rescheduleCount = 0;
@@ -162,6 +184,7 @@ export async function POST(request: Request) {
       payload.client_email,
       payload.date,
       payload.start_time,
+      { recordId: payload.airtable_record_id },
     ).catch((e) => {
       console.error("book_airtable_sync_failed", e);
     });

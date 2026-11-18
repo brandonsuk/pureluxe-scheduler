@@ -106,8 +106,8 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
                 calendar_last_checked_at: new Date().toISOString(),
               })
               .eq("id", appt.id);
-            if (appt.client_phone && appt.client_email) {
-              markAirtableAppointmentBooked(appt.client_phone, appt.client_email, thomasStart.date, thomasStart.time).catch((e) => {
+            if (appt.client_phone || appt.client_email) {
+              markAirtableAppointmentBooked(appt.client_phone || "", appt.client_email || "", thomasStart.date, thomasStart.time, { previousDate: appt.date }).catch((e) => {
                 console.error("thomas_sync_airtable_reschedule_failed", e);
               });
             }
@@ -178,8 +178,8 @@ export async function runCalendarSyncCheck(limit = 250): Promise<{ checked: numb
         : {};
 
     if (!isCancelled && !matchesTime && start && end) {
-      if (appt.client_phone && appt.client_email) {
-        markAirtableAppointmentBooked(appt.client_phone, appt.client_email, start.date, start.time).catch((e) => {
+      if (appt.client_phone || appt.client_email) {
+        markAirtableAppointmentBooked(appt.client_phone || "", appt.client_email || "", start.date, start.time, { previousDate: appt.date }).catch((e) => {
           console.error("gcal_sync_airtable_reschedule_failed", e);
         });
       }
