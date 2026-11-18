@@ -394,10 +394,11 @@ export async function sendCustomerReply(payload: {
   return true;
 }
 
-async function sendSms(to: string, body: string) {
-  if (!twilioClient || !env.twilioPhoneNumber) return;
+// Returns true when the text went to Twilio, false when it was skipped (no Twilio set up or a rate limit).
+async function sendSms(to: string, body: string): Promise<boolean> {
+  if (!twilioClient || !env.twilioPhoneNumber) return false;
   const allowed = await checkSmsAllowed(to);
-  if (!allowed) return;
+  if (!allowed) return false;
   await twilioClient.messages.create({
     from: env.twilioPhoneNumber,
     to,
@@ -407,6 +408,7 @@ async function sendSms(to: string, body: string) {
     incrementRateLimit(`sms:recipient:${to}`),
     incrementRateLimit(`sms:day:${todayKey()}`),
   ]);
+  return true;
 }
 
 export function reminderSchedulingStub() {
@@ -518,6 +520,42 @@ export async function sendQualificationSms(payload: {
     sendSms(payload.clientPhone, body),
     ...(payload.clientEmail ? [sendEmail(payload.clientEmail, "Your PureLuxe Booking Slots Are Ready", body, { html: htmlBody })] : []),
   ]);
+}
+
+// One-tap texts from the CRM lead card (18 Nov 2026). Fixed wording that needs no reply,
+// each with the funnel booking page prefilled (name, phone, email, postcode).
+export const LEAD_SMS_TEMPLATES = ["missed_call", "as_discussed"] as const;
+export type LeadSmsTemplate = (typeof LEAD_SMS_TEMPLATES)[number];
+
+export function leadBookingLink(p: { clientName: string; clientPhone: string; clientEmail?: string; postcode?: string }): string {
+  const params = new URLSearchParams({
+    name: p.clientName,
+    phone: p.clientPhone,
+    qualified: "1",
+    ...(p.clientEmail ? { email: p.clientEmail } : {}),
+    ...(p.postcode ? { address: p.postcode } : {}),
+  });
+  return `${env.funnelBaseUrl}/book?${params.toString()}`;
+}
+
+export function leadSmsBody(template: LeadSmsTemplate, clientName: string, bookingLink: string): string {
+  const first = (clientName.trim().split(/\s+/)[0] || "").replace(/[^A-Za-z'-]/g, "");
+  const hi = first ? `Hi ${first}` : "Hi";
+  if (template === "missed_call") {
+    return `${hi}, it's PureLuxe Bathrooms. Sorry we missed you. Book your free bathroom visit at a time that suits you here, your details are already filled in: ${bookingLink}`;
+  }
+  return `${hi}, thanks for your time on the phone. As promised, here's the link to book your free PureLuxe bathroom visit, your details are already filled in: ${bookingLink}`;
+}
+
+export async function sendLeadTemplateSms(payload: {
+  template: LeadSmsTemplate;
+  clientName: string;
+  clientPhone: string;
+  clientEmail?: string;
+  postcode?: string;
+}): Promise<boolean> {
+  const link = leadBookingLink(payload);
+  return sendSms(payload.clientPhone, leadSmsBody(payload.template, payload.clientName, link));
 }
 
 export async function sendRescheduleInvite(
