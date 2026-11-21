@@ -10,6 +10,7 @@ import { sendBookingNotifications } from "@/lib/notifications";
 import { createCalendarEvent, cancelCalendarEvent } from "@/lib/google-calendar";
 import { markAirtableAppointmentBooked } from "@/lib/airtable-sync";
 import { phoneCandidates } from "@/lib/phone";
+import { BLOCKED_BOOKING_MESSAGE, findActiveBlock } from "@/lib/blocklist";
 
 export const OPTIONS = corsOptions;
 
@@ -64,6 +65,16 @@ export async function POST(request: Request) {
     }
 
     const payload = parsed.data;
+
+    // Blocked from booking in the CRM (phone or email match). Applies to every booking,
+    // the CRM "book anyway" override included: unblock in the CRM first.
+    const block = await findActiveBlock(payload.client_phone, payload.client_email);
+    if (block) {
+      // eslint-disable-next-line no-console
+      console.warn("book_refused_blocked", { block_id: block.id });
+      return jsonError(BLOCKED_BOOKING_MESSAGE, request, 403);
+    }
+
     const maxBookableDate = format(addDays(new Date(), 30), "yyyy-MM-dd");
     if (payload.date > maxBookableDate) {
       return jsonError("Cannot book more than 30 days in advance", request, 422);

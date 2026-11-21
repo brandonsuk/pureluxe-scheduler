@@ -4,6 +4,7 @@ import { env } from "@/lib/env";
 import { sendAbandonedLeadFollowUp } from "@/lib/notifications";
 import { markAirtableAbandonedSmsSent, markAirtableLeadTilingDisqualified } from "@/lib/airtable-sync";
 import { emailKey, phoneKey } from "@/lib/phone";
+import { BlockedContacts as BlockedSet, isBlockedContact, loadBlockedContacts } from "@/lib/blocklist";
 import { supabaseAdmin } from "@/lib/supabase";
 import { todayIsoDateInTimeZone } from "@/lib/time";
 
@@ -211,6 +212,7 @@ export async function runAbandonedLeadCheck(): Promise<{
   suppressed_out_of_area: number;
   suppressed_already_sent: number;
   suppressed_invalid_phone: number;
+  suppressed_blocked: number;
   send_failed: number;
 }> {
   const now = new Date();
@@ -221,7 +223,7 @@ export async function runAbandonedLeadCheck(): Promise<{
     return {
       scanned: 0, eligible: 0, sent: 0, follow_up_2_sent: 0, follow_up_3_sent: 0, quiet_hours: true,
       suppressed_booked: 0, suppressed_disqualified: 0, suppressed_out_of_area: 0,
-      suppressed_already_sent: 0, suppressed_invalid_phone: 0, send_failed: 0,
+      suppressed_already_sent: 0, suppressed_invalid_phone: 0, suppressed_blocked: 0, send_failed: 0,
     };
   }
 
@@ -256,6 +258,12 @@ export async function runAbandonedLeadCheck(): Promise<{
   let suppressedOutOfArea = 0;
   let suppressedAlreadySent = 0;
   let suppressedInvalidPhone = 0;
+  let suppressedBlocked = 0;
+  let blockedContacts: BlockedSet | null = null;
+  const isBlocked = async (phone: string, email: string) => {
+    blockedContacts ??= await loadBlockedContacts();
+    return isBlockedContact(blockedContacts, phone, email);
+  };
   let sendFailed = 0;
   const postcodeAreaCache = new Map<string, boolean>(); // postcode → outOfArea
   let bookedContacts: BookedContacts | null = null;
@@ -289,6 +297,12 @@ export async function runAbandonedLeadCheck(): Promise<{
         is_disqualified: false,
         suppressed_reason: "invalid_phone",
       });
+      continue;
+    }
+
+    // Blocked from booking in the CRM: never chase (no tracker row, so unblocking resumes normally).
+    if (await isBlocked(clientPhone, clientEmail)) {
+      suppressedBlocked += 1;
       continue;
     }
 
@@ -537,6 +551,7 @@ export async function runAbandonedLeadCheck(): Promise<{
     suppressed_out_of_area: suppressedOutOfArea,
     suppressed_already_sent: suppressedAlreadySent,
     suppressed_invalid_phone: suppressedInvalidPhone,
+    suppressed_blocked: suppressedBlocked,
     send_failed: sendFailed,
   };
 }

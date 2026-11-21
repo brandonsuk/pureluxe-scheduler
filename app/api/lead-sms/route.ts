@@ -2,6 +2,7 @@ import { corsOptions } from "@/lib/cors";
 import { jsonError, jsonOk } from "@/lib/http";
 import { env } from "@/lib/env";
 import { LEAD_SMS_TEMPLATES, LeadSmsTemplate, sendLeadTemplateSms } from "@/lib/notifications";
+import { findActiveBlock } from "@/lib/blocklist";
 
 export const OPTIONS = corsOptions;
 
@@ -24,6 +25,7 @@ export async function POST(request: Request) {
     if (!LEAD_SMS_TEMPLATES.includes(template)) return jsonError("unknown template", request, 422);
     const to = toE164(phone);
     if (!name || !/^\+44\d{9,10}$/.test(to)) return jsonError("name and a UK phone are required", request, 422);
+    if (await findActiveBlock(to, email)) return jsonError("This contact is blocked from booking", request, 403);
     const sent = await sendLeadTemplateSms({
       template: template as LeadSmsTemplate,
       clientName: String(name).slice(0, 80),
